@@ -10,6 +10,7 @@ Flovia turns every x402 payment-required response into a personalized checkout f
 .
 ├── apps/
 │   ├── api/            # Flovia Hono API
+│   ├── web/            # Flovia frontend
 │   ├── merchant-api/   # Demo merchant API
 │   └── demo-agent/     # Demo CLI agent
 ├── packages/
@@ -40,6 +41,9 @@ bun run dev:api
 # Start demo merchant API in another terminal
 bun run dev:merchant
 
+# Start the frontend on 0.0.0.0:3000
+bun run dev:web
+
 # Run the demo agent
 bun run dev:agent -- --budget 0.25 --privy-authorized
 
@@ -49,6 +53,55 @@ bun run build
 # Type-check all workspaces
 bun run typecheck
 ```
+
+## Frontend Check
+
+`bun run dev:web` starts the Next.js app on `0.0.0.0:3000` so it is reachable from localhost and from other hosts that can access this machine.
+
+Use these URLs:
+
+- Local browser: `http://localhost:3000`
+- Explicit loopback: `http://127.0.0.1:3000`
+- LAN / container / forwarded environment: `http://<machine-ip>:3000`
+
+If you need loopback-only serving, run:
+
+```bash
+bun run --filter='web' dev:local
+```
+
+Do not pass `--host` to `bun run dev:web`; the script already binds to `0.0.0.0`.
+
+If Next.js warns about an extra `apps/web/pnpm-lock.yaml`, remove it and keep only the root `bun.lock`:
+
+```bash
+rm apps/web/pnpm-lock.yaml
+bun install
+```
+
+## Full Demo Check
+
+Run each service in a separate terminal:
+
+```bash
+bun run dev:api
+bun run dev:merchant
+bun run dev:web
+```
+
+Then verify the agent payment simulation:
+
+```bash
+bun run dev:agent -- --budget 0.25 --privy-authorized
+```
+
+Expected result:
+
+- The frontend loads at `http://localhost:3000`.
+- The authorized agent receives a personalized HTTP 402 offer.
+- `accepts[0].amount` matches `flovia.finalPrice`.
+- The agent retries with MVP simulation payment and receives the paid merchant response.
+- Dashboard JSON shows request, payment, revenue, and segment data.
 
 ## Demo Flow
 

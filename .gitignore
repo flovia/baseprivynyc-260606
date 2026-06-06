@@ -1,5 +1,6 @@
 # Dependencies
 node_modules/
+pnpm-lock.yaml
 
 # Bun
 bun.lockb
@@ -9,6 +10,7 @@ bun.lockb
 dist/
 build/
 out/
+.next/
 *.js.map
 
 # TypeScript
