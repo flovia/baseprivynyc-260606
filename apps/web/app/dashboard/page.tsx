@@ -25,7 +25,7 @@ export default async function DashboardPage() {
           </Button>
         </header>
 
-        {error ? <Card className="border-warning"><CardContent className="p-4 text-sm text-text-2">{error}</CardContent></Card> : null}
+        {error ? <Card className="border-danger bg-danger-soft"><CardContent className="p-4 text-sm text-danger">{error}</CardContent></Card> : null}
 
         <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {[

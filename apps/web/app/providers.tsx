@@ -22,7 +22,8 @@ export function AppProviders({
         embeddedWallets: { ethereum: { createOnLogin: "users-without-wallets" } },
         appearance: {
           theme: "light",
-          accentColor: "#2563eb",
+          // Keep in sync with --mesh-blue in globals.css; Privy's JS config can't read CSS vars.
+          accentColor: "#2f5a82",
           showWalletLoginFirst: false,
         },
       }}

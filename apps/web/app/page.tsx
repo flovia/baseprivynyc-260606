@@ -50,8 +50,8 @@ export default function Home() {
 
         <div className="grid gap-5 lg:grid-cols-[1.2fr_0.8fr]">
           <Card className="overflow-hidden">
-            <CardHeader className="border-b bg-[linear-gradient(135deg,var(--mesh-blue-dim),var(--teal-dim),var(--purple-dim))] p-6 sm:p-8">
-              <Badge className="w-fit border-mesh-blue-soft bg-mesh-blue-soft text-mesh-blue">
+            <CardHeader className="border-b bg-[linear-gradient(135deg,var(--mesh-blue-soft),var(--mesh-blue-dim))] p-6 sm:p-8">
+              <Badge className="w-fit border-primary/20 bg-mesh-blue-soft text-primary">
                 Privy-authorized agents + merchant x402 APIs
               </Badge>
               <div className="max-w-3xl space-y-3 pt-3">
@@ -85,7 +85,7 @@ export default function Home() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <BadgeCheck className="size-4 text-success" />
+                <BadgeCheck className="size-4 text-primary" />
                 Demo checklist
               </CardTitle>
               <CardDescription>Use these local commands after starting the API services.</CardDescription>
