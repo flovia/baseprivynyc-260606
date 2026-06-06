@@ -1,3 +1,5 @@
+import { createConnection } from "node:net";
+
 type Service = {
   name: string;
   command: string[];
@@ -10,7 +12,7 @@ export {};
 const services: Service[] = [
   { name: "api", command: ["bun", "run", "dev:api"], healthUrl: "http://localhost:8787/health" },
   { name: "merchant", command: ["bun", "run", "dev:merchant"], healthUrl: "http://localhost:8790/health" },
-  { name: "web", command: ["bun", "run", "dev:web"] },
+  { name: "web", command: ["bun", "run", "dev:web"], healthUrl: "http://localhost:3000" },
 ];
 
 const e2eServices: Service[] = [
@@ -84,6 +86,36 @@ async function waitForHealth(service: Service) {
   throw new Error(`${service.name} did not become healthy at ${service.healthUrl}`);
 }
 
+function isPortInUse(healthUrl: string) {
+  const url = new URL(healthUrl);
+  if (!url.port) return Promise.resolve(false);
+
+  return new Promise<boolean>((resolve) => {
+    const socket = createConnection({ host: url.hostname, port: Number(url.port) });
+    socket.once("connect", () => {
+      socket.destroy();
+      resolve(true);
+    });
+    socket.once("error", () => resolve(false));
+    socket.setTimeout(500, () => {
+      socket.destroy();
+      resolve(false);
+    });
+  });
+}
+
+async function checkPorts(servicesToCheck: Service[]) {
+  for (const service of servicesToCheck) {
+    if (!service.healthUrl) continue;
+
+    if (await isPortInUse(service.healthUrl)) {
+      throw new Error(
+        `${service.name} port is already in use at ${service.healthUrl}. Stop the existing process or choose another port.`,
+      );
+    }
+  }
+}
+
 function stopServices() {
   for (const child of spawned) {
     child.kill();
@@ -101,6 +133,7 @@ process.on("SIGTERM", () => {
 });
 
 if (mode === "e2e") {
+  await checkPorts(e2eServices);
   e2eServices.forEach(startService);
   await Promise.all(e2eServices.map(waitForHealth));
 
@@ -118,5 +151,6 @@ if (mode === "e2e") {
   process.exit(exitCode);
 }
 
+await checkPorts(services);
 services.forEach(startService);
 await new Promise(() => undefined);

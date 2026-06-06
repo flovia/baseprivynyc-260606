@@ -25,6 +25,17 @@ export const defaultConfig = {
   },
 };
 
+export const publicAuthConfig = {
+  privyAppId: process.env.NEXT_PUBLIC_PRIVY_APP_ID ?? process.env.PRIVY_APP_ID ?? "",
+  walletConnectId: process.env.NEXT_PUBLIC_WALLET_CONNECT_ID ?? process.env.WALLET_CONNECT_ID ?? "",
+};
+
+export const serverAuthConfig = {
+  privyAppId: process.env.PRIVY_APP_ID ?? process.env.NEXT_PUBLIC_PRIVY_APP_ID ?? "",
+  privyAppSecret: process.env.PRIVY_APP_SECRET ?? "",
+  walletConnectId: process.env.WALLET_CONNECT_ID ?? process.env.NEXT_PUBLIC_WALLET_CONNECT_ID ?? "",
+};
+
 export function requireEnv(name: string): string {
   const value = process.env[name];
   if (!value) throw new Error(`Missing required environment variable: ${name}`);
