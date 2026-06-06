@@ -1,6 +1,14 @@
 export const supportedNetworks = ["base", "base-sepolia"] as const;
 export const supportedCurrencies = ["USDC"] as const;
 
+export const usdcDecimals = 6;
+
+// USDC asset identifiers required by x402 real mode (not the display symbol "USDC").
+export const usdcAssetAddresses = {
+  base: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+  "base-sepolia": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+} as const;
+
 export const defaultConfig = {
   floviaApiUrl: process.env.FLOVIA_API_URL ?? "http://localhost:8787",
   merchantApiUrl: process.env.MERCHANT_API_URL ?? "http://localhost:8790",

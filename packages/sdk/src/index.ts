@@ -1,5 +1,5 @@
-import { defaultConfig } from "@flovia-baseprivynyc/config";
-import { OfferQuoteResponseSchema, type Currency, type Network } from "@flovia-baseprivynyc/shared";
+import { defaultConfig, usdcAssetAddresses } from "@flovia-baseprivynyc/config";
+import { OfferQuoteResponseSchema, toAtomic, type Currency, type Network } from "@flovia-baseprivynyc/shared";
 import type { MiddlewareHandler } from "hono";
 
 export type FloviaAdaptive402Options = {
@@ -11,8 +11,6 @@ export type FloviaAdaptive402Options = {
   currency: Currency;
   category: string;
   floviaApiUrl?: string;
-  alternativeEndpoints?: Array<{ path: string; price: string }>;
-  premiumUpsell?: { path: string; price: string };
 };
 
 type PaymentHeader = {
@@ -35,23 +33,24 @@ function parsePaymentHeader(value: string | null | undefined): PaymentHeader | n
 }
 
 export function floviaAdaptive402(options: FloviaAdaptive402Options): MiddlewareHandler {
+  const apiBase = () => options.floviaApiUrl ?? defaultConfig.floviaApiUrl;
+
   return async (c, next) => {
     const wallet = c.req.header("x-agent-wallet") ?? "anonymous_wallet";
     const declaredBudget = c.req.header("x-agent-budget") ?? defaultConfig.defaultBudgetUsdc;
+    const endpoint = new URL(c.req.url).pathname;
     const payment = parsePaymentHeader(c.req.header("x-payment"));
 
+    // Paid retry: emit the payment event then serve the protected handler.
     if (payment) {
-      await fetch(`${options.floviaApiUrl ?? defaultConfig.floviaApiUrl}/v1/events/payment`, {
+      await fetch(`${apiBase()}/v1/events/payment`, {
         method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-flovia-api-key": options.apiKey,
-        },
+        headers: { "content-type": "application/json", "x-flovia-api-key": options.apiKey },
         body: JSON.stringify({
           request_id: payment.request_id ?? c.req.header("x-request-id") ?? `req_${crypto.randomUUID()}`,
           quote_id: payment.quote_id ?? "quote_simulated",
           merchant_id: options.merchantId,
-          endpoint: new URL(c.req.url).pathname,
+          endpoint,
           wallet: payment.wallet ?? wallet,
           amount: payment.amount ?? options.basePrice,
           currency: options.currency,
@@ -64,27 +63,21 @@ export function floviaAdaptive402(options: FloviaAdaptive402Options): Middleware
       return next();
     }
 
+    // No payment yet: request a personalized quote from Flovia.
     const requestId = `req_${crypto.randomUUID()}`;
-    const quoteResponse = await fetch(`${options.floviaApiUrl ?? defaultConfig.floviaApiUrl}/v1/offers/quote`, {
+    const quoteResponse = await fetch(`${apiBase()}/v1/offers/quote`, {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-flovia-api-key": options.apiKey,
-      },
+      headers: { "content-type": "application/json", "x-flovia-api-key": options.apiKey },
       body: JSON.stringify({
         merchant_id: options.merchantId,
-        endpoint: new URL(c.req.url).pathname,
+        endpoint,
         method: c.req.method,
         wallet,
         network: options.network,
         base_price: options.basePrice,
         currency: options.currency,
         request_id: requestId,
-        metadata: {
-          task_category: options.category,
-          agent_declared_budget: declaredBudget,
-          privy_authorized: c.req.header("x-flovia-privy-authorized") === "true",
-        },
+        metadata: { task_category: options.category, agent_declared_budget: declaredBudget },
       }),
     });
 
@@ -94,25 +87,27 @@ export function floviaAdaptive402(options: FloviaAdaptive402Options): Middleware
 
     const quote = OfferQuoteResponseSchema.parse(await quoteResponse.json());
 
-    await fetch(`${options.floviaApiUrl ?? defaultConfig.floviaApiUrl}/v1/events/request`, {
+    await fetch(`${apiBase()}/v1/events/request`, {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-flovia-api-key": options.apiKey,
-      },
+      headers: { "content-type": "application/json", "x-flovia-api-key": options.apiKey },
       body: JSON.stringify({
         request_id: requestId,
         quote_id: quote.quote_id,
         merchant_id: options.merchantId,
-        endpoint: new URL(c.req.url).pathname,
+        endpoint,
         wallet,
         status: "offer_returned",
         final_price: quote.offer.final_price,
         policy: quote.offer.policy,
+        offer_type: quote.offer.type,
         timestamp: new Date().toISOString(),
       }),
     }).catch(() => undefined);
 
+    // x402-shaped payment requirement (atomic units + asset address). The
+    // `extra.simulation` flag labels this as MVP simulation, not a settled
+    // on-chain requirement. The `flovia` extension is snake_case and carries
+    // only normalized offer context — never buyer identity or agent score.
     return c.json(
       {
         error: "Payment Required",
@@ -120,22 +115,26 @@ export function floviaAdaptive402(options: FloviaAdaptive402Options): Middleware
           {
             scheme: "exact",
             network: options.network,
-            asset: options.currency,
-            amount: quote.offer.final_price,
+            maxAmountRequired: toAtomic(quote.offer.final_price),
+            asset: usdcAssetAddresses[options.network],
             payTo: options.payTo,
+            extra: {
+              quote_id: quote.quote_id,
+              request_id: requestId,
+              display_price: quote.offer.final_price,
+              currency: options.currency,
+              simulation: true,
+            },
           },
         ],
         flovia: {
-          requestId,
-          quoteId: quote.quote_id,
-          basePrice: quote.offer.base_price,
-          finalPrice: quote.offer.final_price,
+          type: quote.offer.type,
+          base_price: quote.offer.base_price,
+          final_price: quote.offer.final_price,
+          currency: quote.offer.currency,
           policy: quote.offer.policy,
-          reasonCodes: quote.reason_codes,
-          bundleOffers: quote.offer.bundle ? [quote.offer.bundle] : [],
-          alternativeEndpoints: quote.offer.alternative_endpoint ? [quote.offer.alternative_endpoint] : [],
-          premiumUpsell: quote.offer.premium_upsell,
-          buyer: quote.buyer,
+          reason_codes: quote.reason_codes,
+          ...(quote.offer.unlock ? { unlock: quote.offer.unlock } : {}),
         },
       },
       402,

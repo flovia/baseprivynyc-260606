@@ -47,6 +47,9 @@ bun run dev:web
 # Run the demo agent
 bun run dev:agent -- --budget 0.25 --privy-authorized
 
+# Or run the local payment simulation end-to-end
+bun run e2e
+
 # Build all workspaces
 bun run build
 
@@ -81,18 +84,16 @@ bun install
 
 ## Full Demo Check
 
-Run each service in a separate terminal:
+Run all long-lived dev services in one terminal:
 
 ```bash
-bun run dev:api
-bun run dev:merchant
-bun run dev:web
+bun run dev
 ```
 
-Then verify the agent payment simulation:
+Or verify the agent payment simulation end-to-end with readiness checks:
 
 ```bash
-bun run dev:agent -- --budget 0.25 --privy-authorized
+bun run e2e
 ```
 
 Expected result:

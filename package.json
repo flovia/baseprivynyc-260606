@@ -8,7 +8,9 @@
   ],
   "scripts": {
     "build": "bun run --filter='*' build",
-    "dev": "bun run --filter='*' dev",
+    "dev": "bun run scripts/dev.ts",
+    "dev:e2e": "bun run scripts/dev.ts e2e --budget 0.25 --privy-authorized",
+    "e2e": "bun run dev:e2e",
     "dev:web": "bun run --filter='web' dev",
     "dev:api": "bun run --filter='api' dev",
     "dev:merchant": "bun run --filter='merchant-api' dev",

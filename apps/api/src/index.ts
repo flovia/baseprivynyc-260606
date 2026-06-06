@@ -1,6 +1,22 @@
-import { getDashboard, getMerchantPaidCalls, recordPaymentEvent, recordRequestEvent, saveQuote } from "@flovia-baseprivynyc/db";
+import {
+  getDashboard,
+  getMerchantPaidCalls,
+  getQuote,
+  getUserByWallet,
+  linkAccount,
+  recordPaymentEvent,
+  recordRequestEvent,
+  saveQuote,
+  upsertUser,
+} from "@flovia-baseprivynyc/db";
 import { computeOffer, deriveSignals } from "@flovia-baseprivynyc/offer-engine";
-import { OfferQuoteRequestSchema, PaymentEventSchema, RequestEventSchema } from "@flovia-baseprivynyc/shared";
+import {
+  DevUserSchema,
+  LinkAccountSchema,
+  OfferQuoteRequestSchema,
+  PaymentEventSchema,
+  RequestEventSchema,
+} from "@flovia-baseprivynyc/shared";
 import { Hono } from "hono";
 
 export const app = new Hono();
@@ -9,8 +25,9 @@ app.get("/health", (c) => c.json({ ok: true, service: "flovia-api" }));
 
 app.post("/v1/offers/quote", async (c) => {
   const input = OfferQuoteRequestSchema.parse(await c.req.json());
+  const user = getUserByWallet(input.wallet);
   const merchantPaidCalls = getMerchantPaidCalls(input.merchant_id, input.wallet);
-  const quote = computeOffer(input, deriveSignals(input, merchantPaidCalls));
+  const quote = computeOffer(input, deriveSignals(input, user, merchantPaidCalls));
   saveQuote({
     ...quote,
     request_id: input.request_id,
@@ -27,6 +44,14 @@ app.post("/v1/events/request", async (c) => {
 
 app.post("/v1/events/payment", async (c) => {
   const event = PaymentEventSchema.parse(await c.req.json());
+  // Security: paid wallet must match the quoted wallet when the quote is known.
+  const quote = getQuote(event.quote_id);
+  if (quote && quote.buyer.wallet.toLowerCase() !== event.wallet.toLowerCase()) {
+    return c.json(
+      { error: "wallet_mismatch", reason: "paid wallet does not match quoted wallet" },
+      409,
+    );
+  }
   return c.json(recordPaymentEvent(event));
 });
 
@@ -34,10 +59,33 @@ app.get("/v1/merchants/:merchantId/dashboard", (c) => {
   return c.json(getDashboard(c.req.param("merchantId")));
 });
 
+// --- Simulation/dev only ---------------------------------------------------
+// Stand-ins for Privy login + agent authorization, and for account linking in
+// the Privy UI. Not part of the merchant-facing API surface.
+
+app.post("/v1/dev/users", async (c) => {
+  const body = DevUserSchema.parse(await c.req.json());
+  const user = upsertUser({
+    wallet: body.wallet,
+    privyDid: body.privy_did,
+    identityConfidence: body.identity_confidence ?? "wallet_only",
+    hasActiveAgentAuthorization: body.authorized ?? true,
+  });
+  return c.json(user);
+});
+
+app.post("/v1/dev/users/:wallet/link", async (c) => {
+  const body = LinkAccountSchema.parse(await c.req.json());
+  const user = linkAccount(c.req.param("wallet"), body.type);
+  if (!user) return c.json({ error: "user_not_found" }, 404);
+  return c.json(user);
+});
+
 if (import.meta.main) {
+  const port = Number(process.env.PORT ?? 8787);
   Bun.serve({
-    port: Number(process.env.PORT ?? 8787),
+    port,
     fetch: app.fetch,
   });
-  console.log("Flovia API listening on http://localhost:8787");
+  console.log(`Flovia API listening on http://localhost:${port}`);
 }
