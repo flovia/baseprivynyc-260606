@@ -1,8 +1,89 @@
 # Flovia Agent Offers
 
-Middleware and an offer engine for x402-enabled API merchants.
+website: https://baseprivynyc-260606-web.vercel.app/
 
-Flovia turns every x402 payment-required response into a personalized checkout for AI agents.
+**API analytics turned into adaptive x402 monetization.**
+
+Flovia helps API merchants understand and monetize agent-driven API traffic.
+
+Originally, Flovia was built as commercial analytics for API merchants on machine payments: understanding which agent channels drive paid usage, which APIs are used together, and which buyer segments retain.
+
+For the Base × Privy hackathon, we extended Flovia into an adaptive x402 offer engine.
+
+Instead of returning the same `HTTP 402 Payment Required` response to every wallet, merchants can now return personalized prices, discounts, bundles, and next-offer recommendations based on:
+
+- Privy wallet / identity context
+- Agent authorization and budget
+- Source channel attribution
+- Cross-API usage patterns
+- Prior payment behavior
+
+> Same API. Smarter 402. Better conversion.
+
+---
+
+## What Flovia Does
+
+Flovia gives x402 API merchants two layers:
+
+### 1. Commercial Analytics for Machine-Paid APIs
+
+API merchants can understand:
+
+- Which agent channels drive paid usage
+- Which source channels convert best
+- Which APIs are used together
+- Which buyer segments have higher ARPU
+- Which offers, discounts, or bundles perform best
+- Which agent-facing descriptions drive higher-retention usage
+
+Example channels:
+
+- `agentic.market`
+- `Hermes`
+- `Privy Wallet Apps`
+- `pay.sh`
+- `Direct Docs`
+
+### 2. Adaptive x402 Offers
+
+Flovia turns analytics into real-time offer decisions.
+
+When an agent calls an x402-gated merchant API, the merchant SDK asks Flovia:
+
+> “What offer should I return for this buyer?”
+
+Flovia returns an offer context, and the merchant returns a personalized x402-compatible `402 Payment Required` response.
+
+Examples:
+
+- Wallet-only Privy user → full price + account-linking discount condition
+- Verified Privy user → discounted price
+- Buyer from high-performing source channel → bundle recommendation
+- Repeat buyer → loyalty offer or premium upsell
+
+---
+
+## Demo Flow
+
+The demo shows one merchant API returning different x402 responses based on buyer context.
+
+### 1. Merchant integrates Flovia SDK
+
+The merchant keeps their existing API and x402 flow.
+
+```ts
+app.get(
+  "/api/premium-signal",
+  floviaAdaptive402({
+    merchantId: "merch_123",
+    network: "base-sepolia",
+    basePrice: "0.05",
+    currency: "USDC",
+    category: "market_signal",
+  }),
+  handler
+);
 
 ## Structure
 
