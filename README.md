@@ -1,6 +1,9 @@
 # Flovia Agent Offers
 
-website: https://baseprivynyc-260606-web.vercel.app/
+merchant's dashboard: https://demo.flovia402.com/
+user side (privy):  https://baseprivynyc-260606-web.vercel.app/
+
+pitch: https://canva.link/9xhz3z5z4hnhpo5
 
 **API analytics turned into adaptive x402 monetization.**
 
