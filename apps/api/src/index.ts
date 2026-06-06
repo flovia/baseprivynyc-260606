@@ -23,6 +23,7 @@ import { Hono } from "hono";
 import { resolvePrivyIdentity } from "./privy";
 
 export const app = new Hono();
+const devEndpointsEnabled = process.env.FLOVIA_ENABLE_DEV_ENDPOINTS !== "false";
 
 function computeNextOffer(paidCalls: number): FloviaNextOffer {
   if (paidCalls <= 1) {
@@ -48,7 +49,7 @@ function computeNextOffer(paidCalls: number): FloviaNextOffer {
   };
 }
 
-app.get("/health", (c) => c.json({ ok: true, service: "flovia-api" }));
+app.get("/health", (c) => c.json({ ok: true, service: "flovia-api", dev_endpoints_enabled: devEndpointsEnabled }));
 
 app.post("/v1/offers/quote", async (c) => {
   const input = OfferQuoteRequestSchema.parse(await c.req.json());
@@ -121,7 +122,7 @@ app.post("/v1/auth/privy/sync", async (c) => {
 // Stand-ins for Privy login + agent authorization, and for account linking in
 // the Privy UI. Not part of the merchant-facing API surface.
 
-if (process.env.FLOVIA_ENABLE_DEV_ENDPOINTS === "true" || process.env.NODE_ENV !== "production") {
+if (devEndpointsEnabled) {
   app.post("/v1/dev/users", async (c) => {
     const body = DevUserSchema.parse(await c.req.json());
     const user = upsertUser({
