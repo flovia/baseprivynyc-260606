@@ -1,9 +1,9 @@
-import { BarChart3, ExternalLink } from "lucide-react";
+import { BarChart3 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { demoMerchantId, fetchDashboard, floviaApiUrl, textValue } from "@/lib/flovia";
+import { demoMerchantId, fetchDashboard, textValue } from "@/lib/flovia";
 
 export default async function DashboardPage() {
   const { data, error } = await fetchDashboard();
@@ -19,8 +19,8 @@ export default async function DashboardPage() {
             <p className="text-sm text-text-3">Live data from the Flovia dashboard API when available.</p>
           </div>
           <Button asChild variant="outline">
-            <a href={`${floviaApiUrl}/v1/merchants/${demoMerchantId}/dashboard`}>
-              API JSON <ExternalLink className="size-4" />
+            <a href="/dashboard/requests">
+              Request log
             </a>
           </Button>
         </header>
@@ -49,16 +49,29 @@ export default async function DashboardPage() {
             </CardHeader>
             <CardContent className="overflow-x-auto">
               <Table>
-                <TableHeader><TableRow><TableHead>Time</TableHead><TableHead>Wallet</TableHead><TableHead>Endpoint</TableHead><TableHead>Price</TableHead><TableHead>Offer</TableHead><TableHead>Status</TableHead></TableRow></TableHeader>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Time</TableHead>
+                    <TableHead>Wallet</TableHead>
+                    <TableHead>Endpoint</TableHead>
+                    <TableHead>Base</TableHead>
+                    <TableHead>Final</TableHead>
+                    <TableHead>Policy</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Tx</TableHead>
+                  </TableRow>
+                </TableHeader>
                 <TableBody>
                   {(data?.recent_requests ?? []).map((row, index) => (
                     <TableRow key={`${textValue(row.request_id, String(index))}-${index}`}>
                       <TableCell className="whitespace-nowrap">{textValue(row.time)}</TableCell>
                       <TableCell className="whitespace-nowrap">{textValue(row.wallet)}</TableCell>
                       <TableCell>{textValue(row.endpoint)}</TableCell>
+                      <TableCell>${textValue(row.base_price, "0.00")}</TableCell>
                       <TableCell>${textValue(row.final_price, "0.00")}</TableCell>
-                      <TableCell>{textValue(row.offer_type)}</TableCell>
+                      <TableCell>{textValue(row.policy)}</TableCell>
                       <TableCell>{textValue(row.status)}</TableCell>
+                      <TableCell>{textValue(row.tx_hash)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -75,6 +88,14 @@ export default async function DashboardPage() {
                   <p className="text-sm text-text-3">{segment.requests} requests, {(segment.conversion_rate * 100).toFixed(0)}% conversion, ARPU ${segment.arpu}</p>
                 </div>
               ))}
+              {(data?.reason_codes ?? []).length > 0 ? (
+                <div className="rounded-lg border bg-surface-subtle p-3">
+                  <p className="font-medium">Reason codes</p>
+                  <p className="mt-1 text-sm text-text-3">
+                    {data?.reason_codes.map((item) => `${item.code} (${item.count})`).join(", ")}
+                  </p>
+                </div>
+              ) : null}
             </CardContent>
           </Card>
         </section>

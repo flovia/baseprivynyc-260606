@@ -28,7 +28,11 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-surface-page text-foreground">
       <section className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-4 py-5 sm:px-6 lg:px-8">
-        <header className="flex flex-col gap-4 rounded-xl border bg-surface-card p-5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-1">
+          <a href="/dashboard" className="self-end text-sm font-medium text-primary hover:underline">
+            {"->"} merchant dashboard
+          </a>
+          <header className="flex flex-col gap-4 rounded-xl border bg-surface-card p-5 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
             <div className="flex size-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
               <ShieldCheck className="size-5" />
@@ -42,11 +46,9 @@ export default function Home() {
             <Button asChild>
               <a href="/login">Privy login</a>
             </Button>
-            <Button asChild variant="outline">
-              <a href="/dashboard">Merchant dashboard</a>
-            </Button>
           </div>
-        </header>
+          </header>
+        </div>
 
         <div className="grid gap-5 lg:grid-cols-[1.2fr_0.8fr]">
           <Card className="overflow-hidden">
@@ -88,15 +90,21 @@ export default function Home() {
                 <BadgeCheck className="size-4 text-primary" />
                 Demo checklist
               </CardTitle>
-              <CardDescription>Use these local commands after starting the API services.</CardDescription>
+              <CardDescription>Use the guided UI after starting the API services.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <pre className="overflow-x-auto rounded-lg border bg-surface-subtle p-3 text-xs text-text-2">
-                <code>{"bun run dev:api\nbun run dev:merchant\nbun run dev:agent -- --budget 0.25 --privy-authorized"}</code>
+                <code>{"bun run dev:api\nbun run dev:merchant\nopen /demo"}</code>
               </pre>
+              <Button asChild className="w-full justify-between">
+                <a href="/demo">
+                  Run guided demo
+                  <ArrowRight className="size-4" />
+                </a>
+              </Button>
               <Button asChild variant="secondary" className="w-full justify-between">
-                <a href="http://localhost:8791/v1/merchants/merch_demo/dashboard">
-                  Open dashboard JSON
+                <a href="/dashboard">
+                  View dashboard
                   <ArrowRight className="size-4" />
                 </a>
               </Button>
