@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useActionState, useEffect, useMemo, useState } from "react";
+import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
 import { usdcAssetAddresses } from "@flovia-baseprivynyc/config";
 import { ArrowRight, CheckCircle2, CreditCard, LogOut, Mail, PlugZap, ShieldCheck, SquareCode, Wallet, X } from "lucide-react";
@@ -13,6 +13,10 @@ import type { HomeAction, HomeState, JsonObject } from "./home-types";
 
 const baseChainId = "0x2105";
 const baseUsdcAddress = usdcAssetAddresses.base;
+const chainIds = {
+  base: "0x2105",
+  "base-sepolia": "0x14a34",
+} as const;
 
 const endpoints = [
   { method: "GET", path: "/api/premium-signal", label: "Premium signal", detail: "Personalized 402 offer" },
@@ -46,6 +50,12 @@ function linkedAccountTypes(user: ReturnType<typeof usePrivy>["user"]): string[]
 
 function baseUsdcBalanceCall(address: string): string {
   return `0x70a08231${address.toLowerCase().replace(/^0x/, "").padStart(64, "0")}`;
+}
+
+function erc20TransferCall(to: string, atomicAmount: string): string {
+  const recipient = to.toLowerCase().replace(/^0x/, "").padStart(64, "0");
+  const amount = BigInt(atomicAmount).toString(16).padStart(64, "0");
+  return `0xa9059cbb${recipient}${amount}`;
 }
 
 function formatUsdcBalance(hexBalance: string): string {
@@ -115,6 +125,10 @@ function PrivyHomeClient({ action, initialState }: Readonly<{
   const [budgetInput, setBudgetInput] = useState(state.budget);
   const [balance, setBalance] = useState("-");
   const [balanceStatus, setBalanceStatus] = useState("Not connected");
+  const [realPaymentStatus, setRealPaymentStatus] = useState("");
+  const [realPaymentPending, setRealPaymentPending] = useState(false);
+  const realTxHashRef = useRef<HTMLInputElement>(null);
+  const realPaymentSubmitRef = useRef<HTMLButtonElement>(null);
   const privyWallet = walletAddress(privy.user);
   const linked = linkedAccountTypes(privy.user);
   const activeWallet = useMemo(
@@ -126,11 +140,55 @@ function PrivyHomeClient({ action, initialState }: Readonly<{
   const requirement = accepts[0] && typeof accepts[0] === "object" && !Array.isArray(accepts[0]) ? accepts[0] as JsonObject : null;
   const canRequestWithPrivy = privy.ready && privy.authenticated && Boolean(privyWallet);
   const requestModeLabel = state.requestMode === "privy" ? "Privy wallet" : state.requestMode === "pure_wallet" ? "Pure wallet" : "No preview";
+  const canSendRealPayment = canRequestWithPrivy && state.status === "offer" && state.requestMode === "privy" && Boolean(requirement) && Boolean(activeWallet);
 
   useEffect(() => {
     setEndpointInput(state.endpoint);
     setBudgetInput(state.budget);
   }, [state.endpoint, state.budget]);
+
+  useEffect(() => {
+    if (state.status === "paid" || state.status === "error") setRealPaymentPending(false);
+  }, [state.status]);
+
+  async function sendRealPrivyPayment() {
+    if (!activeWallet || !requirement) return;
+    const network = stringValue(requirement, "network", "");
+    const chainId = chainIds[network as keyof typeof chainIds];
+    const asset = stringValue(requirement, "asset", "");
+    const payTo = stringValue(requirement, "payTo", "");
+    const amount = stringValue(requirement, "maxAmountRequired", "");
+    if (!chainId || !asset || !payTo || !amount) {
+      setRealPaymentStatus("Missing x402 payment requirement fields.");
+      return;
+    }
+
+    try {
+      setRealPaymentPending(true);
+      setRealPaymentStatus("Opening Privy wallet for USDC transfer...");
+      const provider = await activeWallet.getEthereumProvider();
+      const currentChainId = await provider.request({ method: "eth_chainId" });
+      if (currentChainId !== chainId) {
+        await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId }] });
+      }
+      const txHash = await provider.request({
+        method: "eth_sendTransaction",
+        params: [{
+          from: activeWallet.address,
+          to: asset,
+          value: "0x0",
+          data: erc20TransferCall(payTo, amount),
+        }],
+      });
+      if (typeof txHash !== "string" || txHash.length === 0) throw new Error("Wallet did not return a transaction hash.");
+      setRealPaymentStatus(`Submitted ${txHash}. Recording payment...`);
+      if (realTxHashRef.current) realTxHashRef.current.value = txHash;
+      realPaymentSubmitRef.current?.click();
+    } catch (error) {
+      setRealPaymentStatus(error instanceof Error ? error.message : "Real payment failed.");
+      setRealPaymentPending(false);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -332,6 +390,13 @@ function PrivyHomeClient({ action, initialState }: Readonly<{
                   <CreditCard className="size-4" />
                   Simulate payment from preview
                 </Button>
+                <input ref={realTxHashRef} type="hidden" name="real_tx_hash" />
+                <button ref={realPaymentSubmitRef} type="submit" name="intent" value="send-real-payment" className="hidden" aria-hidden="true" tabIndex={-1} />
+                <Button type="button" disabled={pending || realPaymentPending || !canSendRealPayment} onClick={() => void sendRealPrivyPayment()}>
+                  <CreditCard className="size-4" />
+                  Send real tx with Privy
+                </Button>
+                {realPaymentStatus ? <p className="text-xs text-text-3">{realPaymentStatus}</p> : null}
               </CardContent>
             </Card>
 
@@ -342,7 +407,7 @@ function PrivyHomeClient({ action, initialState }: Readonly<{
                   <CheckCircle2 className="size-5 text-primary" />
                   Paid response
                 </CardTitle>
-                <CardDescription>Result after the simulated x402 payment flow.</CardDescription>
+                <CardDescription>Result after simulated payment or a real Privy wallet USDC transfer.</CardDescription>
               </CardHeader>
               <CardContent className="rounded-lg border bg-surface-subtle p-3 text-sm text-text-2">
                 {state.paidResponse ? (

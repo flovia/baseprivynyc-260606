@@ -96,7 +96,7 @@ async function homeAction(state: HomeState, formData: FormData): Promise<HomeSta
       };
     }
 
-    if (intent === "simulate-payment") {
+    if (intent === "simulate-payment" || intent === "send-real-payment") {
       if (!wallet && !state.requestWallet) throw new Error("No preview wallet is available.");
       if (state.status !== "offer") throw new Error("Payment simulation is only available from an active preview.");
       const requirement = firstPaymentRequirement(state.offerResponse);
@@ -106,6 +106,8 @@ async function homeAction(state: HomeState, formData: FormData): Promise<HomeSta
       const requestId = stringValue(extra, "request_id");
       if (!quoteId || !requestId) throw new Error("Missing quote metadata; send a merchant request first.");
       const paymentWallet = state.requestWallet || wallet;
+      const realTxHash = formString(formData, "real_tx_hash", "");
+      if (intent === "send-real-payment" && !realTxHash) throw new Error("Missing real payment transaction hash.");
 
       const response = await fetch(`${defaultConfig.merchantApiUrl}${endpoint}`, {
         method: "GET",
@@ -115,11 +117,11 @@ async function homeAction(state: HomeState, formData: FormData): Promise<HomeSta
           "x-payment": JSON.stringify({
             quote_id: quoteId,
             request_id: requestId,
-            tx_hash: `sim_ui_${crypto.randomUUID()}`,
+            tx_hash: realTxHash || `sim_ui_${crypto.randomUUID()}`,
             amount: stringValue(flovia, "final_price") ?? stringValue(extra, "display_price") ?? defaultConfig.endpointPrices.premiumSignal,
             wallet: paymentWallet,
             offer_selected: stringValue(flovia, "policy") ?? "mvp_simulation",
-            simulation: true,
+            simulation: intent !== "send-real-payment",
           }),
         },
         cache: "no-store",
@@ -132,7 +134,9 @@ async function homeAction(state: HomeState, formData: FormData): Promise<HomeSta
         requestWallet: paymentWallet,
         paidResponse: body,
         status: "paid",
-        message: "Payment simulated. The merchant dashboard now shows the request and conversion.",
+        message: intent === "send-real-payment"
+          ? `Real Privy wallet transaction recorded: ${realTxHash}.`
+          : "Payment simulated. The merchant dashboard now shows the request and conversion.",
       };
     }
 
