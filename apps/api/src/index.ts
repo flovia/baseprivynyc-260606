@@ -16,9 +16,11 @@ import {
   LinkAccountSchema,
   OfferQuoteRequestSchema,
   PaymentEventSchema,
+  PrivySyncRequestSchema,
   RequestEventSchema,
 } from "@flovia-baseprivynyc/shared";
 import { Hono } from "hono";
+import { resolvePrivyIdentity } from "./privy";
 
 export const app = new Hono();
 
@@ -90,30 +92,57 @@ app.get("/v1/merchants/:merchantId/dashboard", (c) => {
   return c.json(getDashboard(c.req.param("merchantId")));
 });
 
+app.post("/v1/auth/privy/sync", async (c) => {
+  const body = PrivySyncRequestSchema.parse(await c.req.json());
+  try {
+    const identity = await resolvePrivyIdentity({
+      identityToken: body.identity_token,
+      requestedWallet: body.wallet,
+    });
+    const user = upsertUser({
+      wallet: identity.wallet,
+      privyDid: identity.privyDid,
+      identityConfidence: identity.identityConfidence,
+      linkedAccountTypes: identity.linkedAccountTypes,
+      hasActiveAgentAuthorization: body.authorized,
+      authoritativeIdentity: true,
+    });
+    return c.json(user);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "privy_sync_failed";
+    if (message === "privy_not_configured") return c.json({ error: message }, 503);
+    if (message === "privy_wallet_not_found") return c.json({ error: message }, 400);
+    if (message === "privy_wallet_mismatch") return c.json({ error: message }, 409);
+    return c.json({ error: "privy_sync_failed" }, 401);
+  }
+});
+
 // --- Simulation/dev only ---------------------------------------------------
 // Stand-ins for Privy login + agent authorization, and for account linking in
 // the Privy UI. Not part of the merchant-facing API surface.
 
-app.post("/v1/dev/users", async (c) => {
-  const body = DevUserSchema.parse(await c.req.json());
-  const user = upsertUser({
-    wallet: body.wallet,
-    privyDid: body.privy_did,
-    identityConfidence: body.identity_confidence ?? "wallet_only",
-    hasActiveAgentAuthorization: body.authorized ?? true,
+if (process.env.FLOVIA_ENABLE_DEV_ENDPOINTS === "true" || process.env.NODE_ENV === "test") {
+  app.post("/v1/dev/users", async (c) => {
+    const body = DevUserSchema.parse(await c.req.json());
+    const user = upsertUser({
+      wallet: body.wallet,
+      privyDid: body.privy_did,
+      identityConfidence: body.identity_confidence ?? "wallet_only",
+      hasActiveAgentAuthorization: body.authorized ?? true,
+    });
+    return c.json(user);
   });
-  return c.json(user);
-});
 
-app.post("/v1/dev/users/:wallet/link", async (c) => {
-  const body = LinkAccountSchema.parse(await c.req.json());
-  const user = linkAccount(c.req.param("wallet"), body.type);
-  if (!user) return c.json({ error: "user_not_found" }, 404);
-  return c.json(user);
-});
+  app.post("/v1/dev/users/:wallet/link", async (c) => {
+    const body = LinkAccountSchema.parse(await c.req.json());
+    const user = linkAccount(c.req.param("wallet"), body.type);
+    if (!user) return c.json({ error: "user_not_found" }, 404);
+    return c.json(user);
+  });
+}
 
 if (import.meta.main) {
-  const port = Number(process.env.PORT ?? 8787);
+  const port = Number(process.env.PORT ?? 8791);
   Bun.serve({
     port,
     fetch: app.fetch,

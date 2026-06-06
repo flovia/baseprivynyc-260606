@@ -64,7 +64,7 @@ export function computeOffer(
     reasonCodes.push("anonymous_wallet");
   } else if (signals.identityConfidence === "wallet_only") {
     // Rule 2: wallet-only Privy user -> full price + unlockable discount.
-    segment = "wallet_only_privy_user";
+    segment = "low_assurance_privy_user";
     policy = "base_price_until_verified";
     type = "unlockable_discount";
     finalPrice = basePrice;

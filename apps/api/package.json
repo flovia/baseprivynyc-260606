@@ -10,9 +10,11 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@flovia-baseprivynyc/config": "workspace:*",
     "@flovia-baseprivynyc/db": "workspace:*",
     "@flovia-baseprivynyc/offer-engine": "workspace:*",
     "@flovia-baseprivynyc/shared": "workspace:*",
+    "@privy-io/server-auth": "^1.32.5",
     "hono": "^4.10.7"
   }
 }

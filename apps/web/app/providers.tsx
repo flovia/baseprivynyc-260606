@@ -2,18 +2,29 @@
 
 import { PrivyProvider } from "@privy-io/react-auth";
 
-const privyAppId = process.env.NEXT_PUBLIC_PRIVY_APP_ID ?? "";
-const privyClientId = process.env.NEXT_PUBLIC_PRIVY_CLIENT_ID;
+type AuthConfig = {
+  privyAppId: string;
+  walletConnectId: string;
+};
 
-export function Providers({ children }: { children: React.ReactNode }) {
-  if (!privyAppId) return <>{children}</>;
+export function AppProviders({
+  authConfig,
+  children,
+}: Readonly<{ authConfig: AuthConfig; children: React.ReactNode }>) {
+  if (!authConfig.privyAppId) return children;
 
   return (
     <PrivyProvider
-      appId={privyAppId}
-      {...(privyClientId ? { clientId: privyClientId } : {})}
+      appId={authConfig.privyAppId}
       config={{
         loginMethods: ["email", "twitter", "github"],
+        walletConnectCloudProjectId: authConfig.walletConnectId || undefined,
+        embeddedWallets: { ethereum: { createOnLogin: "users-without-wallets" } },
+        appearance: {
+          theme: "light",
+          accentColor: "#2563eb",
+          showWalletLoginFirst: false,
+        },
       }}
     >
       {children}

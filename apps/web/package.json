@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@flovia-baseprivynyc/config": "workspace:*",
     "@privy-io/react-auth": "^3.29.2",
     "@radix-ui/react-slot": "^1.2.4",
     "@tailwindcss/postcss": "^4.3.0",

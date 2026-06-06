@@ -10,7 +10,7 @@ export const usdcAssetAddresses = {
 } as const;
 
 export const defaultConfig = {
-  floviaApiUrl: process.env.FLOVIA_API_URL ?? "http://localhost:8787",
+  floviaApiUrl: process.env.FLOVIA_API_URL ?? "http://localhost:8791",
   merchantApiUrl: process.env.MERCHANT_API_URL ?? "http://localhost:8790",
   demoMerchantId: process.env.FLOVIA_MERCHANT_ID ?? "merch_demo",
   demoApiKey: process.env.FLOVIA_API_KEY ?? "demo-api-key",
@@ -26,8 +26,8 @@ export const defaultConfig = {
 };
 
 export const publicAuthConfig = {
-  privyAppId: process.env.NEXT_PUBLIC_PRIVY_APP_ID ?? process.env.PRIVY_APP_ID ?? "",
-  walletConnectId: process.env.NEXT_PUBLIC_WALLET_CONNECT_ID ?? process.env.WALLET_CONNECT_ID ?? "",
+  privyAppId: process.env.NEXT_PUBLIC_PRIVY_APP_ID ?? "",
+  walletConnectId: process.env.NEXT_PUBLIC_WALLET_CONNECT_ID ?? "",
 };
 
 export const serverAuthConfig = {

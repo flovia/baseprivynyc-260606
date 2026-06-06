@@ -101,6 +101,12 @@ export const DevUserSchema = z.object({
 
 export const LinkAccountSchema = z.object({ type: LinkedAccountTypeSchema });
 
+export const PrivySyncRequestSchema = z.object({
+  identity_token: z.string().min(1),
+  wallet: z.string().min(1).optional(),
+  authorized: z.boolean().optional(),
+});
+
 // --- Offer / quote response ----------------------------------------------
 
 export const UnlockSchema = z.object({
@@ -230,6 +236,7 @@ export type NextOfferType = z.infer<typeof NextOfferTypeSchema>;
 export type IdentityConfidence = z.infer<typeof IdentityConfidenceSchema>;
 export type LinkedAccountType = z.infer<typeof LinkedAccountTypeSchema>;
 export type FloviaNextOffer = z.infer<typeof FloviaNextOfferSchema>;
+export type PrivySyncRequest = z.infer<typeof PrivySyncRequestSchema>;
 
 export type BuyerSignals = {
   isFloviaPrivyUser: boolean;

@@ -20,7 +20,7 @@ const flow = [
 
 const requests = [
   ["12:00:15", "0xabc...", "verified_privy_user", "/api/premium-signal", "$0.025", "verified_user_discount"],
-  ["11:58:41", "0xdef...", "wallet_only_privy_user", "/api/premium-signal", "$0.05", "unlockable_discount"],
+  ["11:58:41", "0xdef...", "low_assurance_privy_user", "/api/premium-signal", "$0.05", "unlockable_discount"],
   ["11:54:03", "0x987...", "anonymous_wallet", "/api/basic-signal", "$0.01", "base_price"],
 ];
 
@@ -95,7 +95,7 @@ export default function Home() {
                 <code>{"bun run dev:api\nbun run dev:merchant\nbun run dev:agent -- --budget 0.25 --privy-authorized"}</code>
               </pre>
               <Button asChild variant="secondary" className="w-full justify-between">
-                <a href="http://localhost:8787/v1/merchants/merch_demo/dashboard">
+                <a href="http://localhost:8791/v1/merchants/merch_demo/dashboard">
                   Open dashboard JSON
                   <ArrowRight className="size-4" />
                 </a>
