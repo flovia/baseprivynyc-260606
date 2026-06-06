@@ -10,9 +10,24 @@ type Service = {
 export {};
 
 const services: Service[] = [
-  { name: "api", command: ["bun", "run", "dev:api"], healthUrl: "http://localhost:8787/health" },
-  { name: "merchant", command: ["bun", "run", "dev:merchant"], healthUrl: "http://localhost:8790/health" },
-  { name: "web", command: ["bun", "run", "dev:web"], healthUrl: "http://localhost:3000" },
+  {
+    name: "api",
+    command: ["bun", "run", "--watch", "apps/api/src/index.ts"],
+    healthUrl: "http://localhost:8791/health",
+    env: { PORT: "8791", FLOVIA_ENABLE_DEV_ENDPOINTS: "true" },
+  },
+  {
+    name: "merchant",
+    command: ["bun", "run", "--watch", "apps/merchant-api/src/index.ts"],
+    healthUrl: "http://localhost:8790/health",
+    env: { FLOVIA_API_URL: "http://localhost:8791" },
+  },
+  {
+    name: "web",
+    command: ["bun", "run", "dev:web"],
+    healthUrl: "http://localhost:3000",
+    env: { FLOVIA_API_URL: "http://localhost:8791" },
+  },
 ];
 
 const e2eServices: Service[] = [
@@ -20,7 +35,7 @@ const e2eServices: Service[] = [
     name: "api",
     command: ["bun", "run", "apps/api/src/index.ts"],
     healthUrl: "http://localhost:18877/health",
-    env: { PORT: "18877" },
+    env: { PORT: "18877", FLOVIA_ENABLE_DEV_ENDPOINTS: "true" },
   },
   {
     name: "merchant",
@@ -137,15 +152,17 @@ if (mode === "e2e") {
   e2eServices.forEach(startService);
   await Promise.all(e2eServices.map(waitForHealth));
 
-  const agent = Bun.spawn(["bun", "run", "dev:agent", "--", ...agentArgs], {
-    stdout: "inherit",
-    stderr: "inherit",
+  const agent = Bun.spawn(["bun", "run", "apps/demo-agent/src/index.ts", ...agentArgs], {
+    stdout: "pipe",
+    stderr: "pipe",
     env: {
       ...process.env,
       MERCHANT_API_URL: "http://localhost:18890",
       FLOVIA_API_URL: "http://localhost:18877",
     },
   });
+  prefixOutput("agent", agent.stdout);
+  prefixOutput("agent", agent.stderr);
   const exitCode = await agent.exited;
   stopServices();
   process.exit(exitCode);

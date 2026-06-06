@@ -1068,7 +1068,7 @@ Rules:
    no discount
 
 2. If Flovia Privy user is wallet-only:
-   segment = wallet_only_privy_user
+   segment = low_assurance_privy_user
    final_price = base_price
    offer.type = unlockable_discount
    unlock_condition = link_email_or_farcaster

@@ -49,16 +49,26 @@ export function upsertUser(input: {
   wallet: string;
   privyDid?: string;
   identityConfidence?: IdentityConfidence;
+  linkedAccountTypes?: LinkedAccountType[];
   hasActiveAgentAuthorization?: boolean;
+  authoritativeIdentity?: boolean;
 }): FloviaUser {
   const key = input.wallet.toLowerCase();
   const existing = users.get(key);
+  // Dev auth updates should not wipe out linked-account confidence. Real Privy
+  // sync is authoritative and may downgrade after accounts are unlinked.
+  const requested = input.identityConfidence;
+  const identityConfidence =
+    input.authoritativeIdentity && requested
+      ? requested
+      : requested && (!existing || confidenceRank[requested] > confidenceRank[existing.identityConfidence])
+        ? requested
+        : (existing?.identityConfidence ?? "wallet_only");
   const user: FloviaUser = {
     wallet: input.wallet,
     privyDid: input.privyDid ?? existing?.privyDid,
-    identityConfidence:
-      input.identityConfidence ?? existing?.identityConfidence ?? "wallet_only",
-    linkedAccountTypes: existing?.linkedAccountTypes ?? [],
+    identityConfidence,
+    linkedAccountTypes: input.linkedAccountTypes ?? existing?.linkedAccountTypes ?? [],
     hasActiveAgentAuthorization:
       input.hasActiveAgentAuthorization ?? existing?.hasActiveAgentAuthorization ?? false,
     createdAt: existing?.createdAt ?? new Date().toISOString(),
@@ -231,7 +241,7 @@ export function seededDashboard(merchantId: string): DashboardResponse {
       {
         time: "2026-06-06T11:58:41Z",
         wallet: "0xdef...",
-        segment: "wallet_only_privy_user",
+        segment: "low_assurance_privy_user",
         endpoint: "/api/premium-signal",
         base_price: "0.05",
         final_price: "0.05",
@@ -251,7 +261,7 @@ export function seededDashboard(merchantId: string): DashboardResponse {
         best_offer: "verified_user_discount",
       },
       {
-        segment: "wallet_only_privy_user",
+        segment: "low_assurance_privy_user",
         requests: 14,
         conversion_rate: 0.3,
         revenue: "0.24",

@@ -1,4 +1,4 @@
-export const floviaApiUrl = process.env.FLOVIA_API_URL ?? "http://localhost:8787";
+export const floviaApiUrl = process.env.FLOVIA_API_URL ?? "http://localhost:8791";
 export const demoMerchantId = process.env.FLOVIA_MERCHANT_ID ?? "merch_demo";
 
 export type DashboardData = {

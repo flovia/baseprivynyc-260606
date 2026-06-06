@@ -139,7 +139,7 @@ The merchant-visible `flovia` extension is flat snake_case:
 ## Dashboard
 
 ```bash
-open http://localhost:8787/v1/merchants/merch_demo/dashboard
+open http://localhost:8791/v1/merchants/merch_demo/dashboard
 ```
 
 The frontend dashboard routes fetch this API directly:
@@ -154,11 +154,11 @@ The frontend dashboard routes fetch this API directly:
 Useful calls:
 
 ```bash
-curl -X POST http://localhost:8787/v1/dev/users \
+curl -X POST http://localhost:8791/v1/dev/users \
   -H 'content-type: application/json' \
   -d '{"wallet":"0xAgentWallet","identity_confidence":"wallet_only","authorized":true}'
 
-curl -X POST http://localhost:8787/v1/dev/users/0xAgentWallet/link \
+curl -X POST http://localhost:8791/v1/dev/users/0xAgentWallet/link \
   -H 'content-type: application/json' \
   -d '{"type":"email"}'
 ```
