@@ -7,7 +7,7 @@ type AgentOptions = {
   autoLink: boolean;
 };
 
-type Flovia = {
+export type Flovia = {
   type: string;
   base_price: string;
   final_price: string;
@@ -17,7 +17,7 @@ type Flovia = {
   unlock?: { type: string; condition: string; target_final_price: string };
 };
 
-type PaymentRequired = {
+export type PaymentRequired = {
   accepts: Array<{
     maxAmountRequired: string;
     asset: string;
@@ -25,6 +25,23 @@ type PaymentRequired = {
   }>;
   flovia: Flovia;
 };
+
+export function shouldLinkAccount(flovia: Flovia, autoLink: boolean): boolean {
+  return autoLink && flovia.type === "unlockable_discount";
+}
+
+export function buildSimulationPayment(pr: PaymentRequired, wallet: string) {
+  const accept = pr.accepts[0];
+  return {
+    request_id: accept?.extra?.request_id,
+    quote_id: accept?.extra?.quote_id,
+    tx_hash: `sim_${crypto.randomUUID()}`,
+    amount: pr.flovia.final_price,
+    wallet,
+    offer_selected: pr.flovia.policy,
+    simulation: true,
+  };
+}
 
 function readFlag(name: string, fallback?: string): string | undefined {
   const index = process.argv.indexOf(name);
@@ -69,7 +86,7 @@ async function runAgent(options: AgentOptions) {
   console.log("[402]", pr.flovia.type, "final_price", pr.flovia.final_price, pr.flovia.reason_codes);
 
   // Step 2: trigger the unlock condition -> simulate linking email in Privy.
-  if (pr.flovia.type === "unlockable_discount" && options.autoLink) {
+  if (shouldLinkAccount(pr.flovia, options.autoLink)) {
     console.log("[sim] linking email in Privy ->", pr.flovia.unlock?.condition);
     await fetch(`${defaultConfig.floviaApiUrl}/v1/dev/users/${options.wallet}/link`, {
       method: "POST",
@@ -90,15 +107,7 @@ async function runAgent(options: AgentOptions) {
   }
 
   const accept = pr.accepts[0];
-  const payment = {
-    request_id: accept?.extra?.request_id,
-    quote_id: accept?.extra?.quote_id,
-    tx_hash: `sim_${crypto.randomUUID()}`,
-    amount: pr.flovia.final_price,
-    wallet: options.wallet,
-    offer_selected: pr.flovia.policy,
-    simulation: true,
-  };
+  const payment = buildSimulationPayment(pr, options.wallet);
 
   const paid = await callMerchant(options, { "x-payment": JSON.stringify(payment) });
   console.log({

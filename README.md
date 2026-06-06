@@ -55,6 +55,9 @@ bun run build
 
 # Type-check all workspaces
 bun run typecheck
+
+# Run regression tests
+bun run test
 ```
 
 ## Frontend Check
@@ -100,8 +103,9 @@ Expected result:
 
 - The frontend loads at `http://localhost:3000`.
 - The authorized agent receives a personalized HTTP 402 offer.
-- `accepts[0].amount` matches `flovia.finalPrice`.
+- `accepts[0].maxAmountRequired` matches atomic `flovia.final_price`.
 - The agent retries with MVP simulation payment and receives the paid merchant response.
+- The paid response may include `flovia_next_offer` without changing the settled amount.
 - Dashboard JSON shows request, payment, revenue, and segment data.
 
 ## Demo Flow
@@ -109,10 +113,28 @@ Expected result:
 1. Agent calls `GET /api/premium-signal` on the merchant API.
 2. Merchant SDK calls `POST /v1/offers/quote`.
 3. Merchant returns HTTP 402 with x402-compatible `accepts[0]` and a `flovia` extension.
-4. Demo agent chooses an offer within budget.
-5. Demo agent retries with `X-PAYMENT` in explicit MVP simulation mode.
-6. Merchant returns the paid API response.
-7. Flovia dashboard API shows request, offer, conversion, revenue, and segment.
+4. Wallet-only users receive `flovia.type = "unlockable_discount"` at the base price.
+5. After simulated email/Farcaster linking, verified users receive `flovia.final_price = "0.025"` for the default `"0.05"` endpoint.
+6. Demo agent retries with `X-PAYMENT` in explicit MVP simulation mode.
+7. Merchant returns the paid API response, optionally including `flovia_next_offer`.
+8. Flovia dashboard API shows request, offer, conversion, revenue, and segment.
+
+The merchant-visible `flovia` extension is flat snake_case:
+
+```json
+{
+  "flovia": {
+    "type": "verified_user_discount",
+    "base_price": "0.05",
+    "final_price": "0.025",
+    "currency": "USDC",
+    "policy": "verified_user_discount",
+    "reason_codes": ["privy_agent_authorized", "verified_privy_user"]
+  }
+}
+```
+
+`quote_id` and `request_id` are carried in `accepts[0].extra`; buyer identity is not embedded in `flovia`.
 
 ## Dashboard
 
@@ -120,9 +142,36 @@ Expected result:
 open http://localhost:8787/v1/merchants/merch_demo/dashboard
 ```
 
+The frontend dashboard routes fetch this API directly:
+
+- `http://localhost:3000/dashboard`
+- `http://localhost:3000/dashboard/requests`
+
+## Simulation Endpoints
+
+`/v1/dev/*` endpoints are local simulation-only stand-ins for Privy login, account linking, and agent authorization. They must be gated or removed before production deployment.
+
+Useful calls:
+
+```bash
+curl -X POST http://localhost:8787/v1/dev/users \
+  -H 'content-type: application/json' \
+  -d '{"wallet":"0xAgentWallet","identity_confidence":"wallet_only","authorized":true}'
+
+curl -X POST http://localhost:8787/v1/dev/users/0xAgentWallet/link \
+  -H 'content-type: application/json' \
+  -d '{"type":"email"}'
+```
+
+## Payment Modes
+
+The SDK now accepts `paymentMode: "simulation" | "x402"`.
+
+`simulation` is the current local demo mode and labels `accepts[0].extra.simulation = true`. `x402` emits a facilitator-facing x402-shaped requirement without the simulation marker, but real facilitator verification is still a placeholder for a later phase.
+
 ## MVP Notes
 
-This implementation intentionally uses in-memory storage and simulated payment headers. Real Privy login, embedded wallets, Drizzle/Postgres persistence, and x402 facilitator verification are later phases described in `docs/worklogs/001-xxx.md`.
+This implementation intentionally uses in-memory storage and simulated payment headers. Real Privy login, embedded wallets, Drizzle/Postgres persistence, and x402 facilitator verification are later phases described in `docs/worklogs/001-xxx.md` and `docs/worklogs/002-xxx.md`.
 
 ## License
 

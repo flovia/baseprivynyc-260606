@@ -35,7 +35,7 @@ export const CurrencySchema = z.enum(["USDC"]);
 
 export const SegmentSchema = z.enum([
   "anonymous_wallet",
-  "wallet_only_privy_user",
+  "low_assurance_privy_user",
   "verified_privy_user",
 ]);
 
@@ -50,6 +50,8 @@ export const OfferTypeSchema = z.enum([
   "unlockable_discount",
   "verified_user_discount",
 ]);
+
+export const NextOfferTypeSchema = z.enum(["starter_upsell", "loyalty_bundle"]);
 
 export const IdentityConfidenceSchema = z.enum([
   "anonymous",
@@ -135,6 +137,16 @@ export const FloviaExtensionSchema = OfferSchema.extend({
   reason_codes: z.array(z.string()),
 });
 
+export const FloviaNextOfferSchema = z.object({
+  type: NextOfferTypeSchema,
+  title: z.string(),
+  description: z.string(),
+  endpoint: z.string(),
+  price: z.string(),
+  currency: CurrencySchema,
+  reason_codes: z.array(z.string()),
+});
+
 // --- Events ---------------------------------------------------------------
 
 export const RequestEventSchema = z.object({
@@ -162,6 +174,12 @@ export const PaymentEventSchema = z.object({
   tx_hash: z.string(),
   offer_selected: z.string(),
   timestamp: z.string(),
+});
+
+export const PaymentEventResponseSchema = z.object({
+  event: PaymentEventSchema,
+  merchant_paid_calls: z.number(),
+  flovia_next_offer: FloviaNextOfferSchema.optional(),
 });
 
 // --- Dashboard ------------------------------------------------------------
@@ -201,14 +219,17 @@ export type Buyer = z.infer<typeof BuyerSchema>;
 export type Unlock = z.infer<typeof UnlockSchema>;
 export type RequestEvent = z.infer<typeof RequestEventSchema>;
 export type PaymentEvent = z.infer<typeof PaymentEventSchema>;
+export type PaymentEventResponse = z.infer<typeof PaymentEventResponseSchema>;
 export type DashboardResponse = z.infer<typeof DashboardResponseSchema>;
 export type Network = z.infer<typeof NetworkSchema>;
 export type Currency = z.infer<typeof CurrencySchema>;
 export type Segment = z.infer<typeof SegmentSchema>;
 export type Policy = z.infer<typeof PolicySchema>;
 export type OfferType = z.infer<typeof OfferTypeSchema>;
+export type NextOfferType = z.infer<typeof NextOfferTypeSchema>;
 export type IdentityConfidence = z.infer<typeof IdentityConfidenceSchema>;
 export type LinkedAccountType = z.infer<typeof LinkedAccountTypeSchema>;
+export type FloviaNextOffer = z.infer<typeof FloviaNextOfferSchema>;
 
 export type BuyerSignals = {
   isFloviaPrivyUser: boolean;

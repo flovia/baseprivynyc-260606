@@ -11,6 +11,8 @@ const merchantOptions = {
   network: defaultConfig.network,
   currency: defaultConfig.currency,
   category: "market_signal",
+  paymentMode: "simulation" as const,
+  enableNextOffer: true,
 };
 
 app.get("/health", (c) => c.json({ ok: true, service: "merchant-api" }));

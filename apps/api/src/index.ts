@@ -12,6 +12,7 @@ import {
 import { computeOffer, deriveSignals } from "@flovia-baseprivynyc/offer-engine";
 import {
   DevUserSchema,
+  type FloviaNextOffer,
   LinkAccountSchema,
   OfferQuoteRequestSchema,
   PaymentEventSchema,
@@ -20,6 +21,30 @@ import {
 import { Hono } from "hono";
 
 export const app = new Hono();
+
+function computeNextOffer(paidCalls: number): FloviaNextOffer {
+  if (paidCalls <= 1) {
+    return {
+      type: "starter_upsell",
+      title: "Try the plus signal next",
+      description: "First payment settled. Offer the agent a richer follow-up signal without changing this response.",
+      endpoint: "/api/premium-signal-plus",
+      price: "0.08",
+      currency: "USDC",
+      reason_codes: ["first_successful_payment"],
+    };
+  }
+
+  return {
+    type: "loyalty_bundle",
+    title: "Loyalty bundle available",
+    description: "Returning paid buyer. Suggest a bundled continuation path after the settled request.",
+    endpoint: "/api/premium-signal-plus",
+    price: "0.08",
+    currency: "USDC",
+    reason_codes: ["repeat_successful_payment"],
+  };
+}
 
 app.get("/health", (c) => c.json({ ok: true, service: "flovia-api" }));
 
@@ -52,7 +77,13 @@ app.post("/v1/events/payment", async (c) => {
       409,
     );
   }
-  return c.json(recordPaymentEvent(event));
+  const recorded = recordPaymentEvent(event);
+  const merchantPaidCalls = getMerchantPaidCalls(event.merchant_id, event.wallet);
+  return c.json({
+    event: recorded,
+    merchant_paid_calls: merchantPaidCalls,
+    flovia_next_offer: computeNextOffer(merchantPaidCalls),
+  });
 });
 
 app.get("/v1/merchants/:merchantId/dashboard", (c) => {

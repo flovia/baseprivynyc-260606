@@ -1,6 +1,15 @@
 import { defaultConfig, usdcAssetAddresses } from "@flovia-baseprivynyc/config";
-import { OfferQuoteResponseSchema, toAtomic, type Currency, type Network } from "@flovia-baseprivynyc/shared";
+import {
+  OfferQuoteResponseSchema,
+  PaymentEventResponseSchema,
+  toAtomic,
+  type Currency,
+  type FloviaNextOffer,
+  type Network,
+} from "@flovia-baseprivynyc/shared";
 import type { MiddlewareHandler } from "hono";
+
+export type PaymentMode = "simulation" | "x402";
 
 export type FloviaAdaptive402Options = {
   merchantId: string;
@@ -11,6 +20,8 @@ export type FloviaAdaptive402Options = {
   currency: Currency;
   category: string;
   floviaApiUrl?: string;
+  paymentMode?: PaymentMode;
+  enableNextOffer?: boolean;
 };
 
 type PaymentHeader = {
@@ -32,8 +43,25 @@ function parsePaymentHeader(value: string | null | undefined): PaymentHeader | n
   }
 }
 
+async function injectNextOffer(response: Response, floviaNextOffer: FloviaNextOffer): Promise<Response> {
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/json")) return response;
+
+  const body = await response.clone().json().catch(() => null);
+  if (!body || typeof body !== "object" || Array.isArray(body)) return response;
+
+  const headers = new Headers(response.headers);
+  headers.delete("content-length");
+  return new Response(JSON.stringify({ ...body, flovia_next_offer: floviaNextOffer }), {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 export function floviaAdaptive402(options: FloviaAdaptive402Options): MiddlewareHandler {
   const apiBase = () => options.floviaApiUrl ?? defaultConfig.floviaApiUrl;
+  const paymentMode = options.paymentMode ?? "simulation";
 
   return async (c, next) => {
     const wallet = c.req.header("x-agent-wallet") ?? "anonymous_wallet";
@@ -43,7 +71,8 @@ export function floviaAdaptive402(options: FloviaAdaptive402Options): Middleware
 
     // Paid retry: emit the payment event then serve the protected handler.
     if (payment) {
-      await fetch(`${apiBase()}/v1/events/payment`, {
+      let floviaNextOffer: FloviaNextOffer | undefined;
+      const paymentEventResponse = await fetch(`${apiBase()}/v1/events/payment`, {
         method: "POST",
         headers: { "content-type": "application/json", "x-flovia-api-key": options.apiKey },
         body: JSON.stringify({
@@ -60,7 +89,17 @@ export function floviaAdaptive402(options: FloviaAdaptive402Options): Middleware
           timestamp: new Date().toISOString(),
         }),
       }).catch(() => undefined);
-      return next();
+
+      if (paymentEventResponse?.ok) {
+        const parsed = PaymentEventResponseSchema.safeParse(await paymentEventResponse.json());
+        floviaNextOffer = parsed.success ? parsed.data.flovia_next_offer : undefined;
+      }
+
+      await next();
+      if (options.enableNextOffer && floviaNextOffer) {
+        c.res = await injectNextOffer(c.res, floviaNextOffer);
+      }
+      return;
     }
 
     // No payment yet: request a personalized quote from Flovia.
@@ -104,10 +143,10 @@ export function floviaAdaptive402(options: FloviaAdaptive402Options): Middleware
       }),
     }).catch(() => undefined);
 
-    // x402-shaped payment requirement (atomic units + asset address). The
-    // `extra.simulation` flag labels this as MVP simulation, not a settled
-    // on-chain requirement. The `flovia` extension is snake_case and carries
-    // only normalized offer context — never buyer identity or agent score.
+    // x402-shaped payment requirement (atomic units + asset address). In
+    // simulation mode, extra.simulation labels MVP-only local settlement. In
+    // x402 mode, the accepts entry is facilitator-facing and carries no
+    // simulation marker. The `flovia` extension never includes buyer identity.
     return c.json(
       {
         error: "Payment Required",
@@ -123,7 +162,9 @@ export function floviaAdaptive402(options: FloviaAdaptive402Options): Middleware
               request_id: requestId,
               display_price: quote.offer.final_price,
               currency: options.currency,
-              simulation: true,
+              ...(paymentMode === "simulation"
+                ? { simulation: true }
+                : { payment_mode: "x402", facilitator: "x402_exact" }),
             },
           },
         ],
