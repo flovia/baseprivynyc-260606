@@ -4,6 +4,10 @@ import Image from "next/image";
 import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
 import { usdcAssetAddresses } from "@flovia-baseprivynyc/config";
+import { createPaymentHeader } from "x402/client";
+import type { PaymentRequirements } from "x402/types";
+import { createWalletClient, custom, publicActions, type EIP1193Provider } from "viem";
+import { base, baseSepolia } from "viem/chains";
 import { ArrowRight, CheckCircle2, CreditCard, LogOut, Mail, PlugZap, ShieldCheck, SquareCode, Wallet, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +20,10 @@ const baseUsdcAddress = usdcAssetAddresses.base;
 const chainIds = {
   base: "0x2105",
   "base-sepolia": "0x14a34",
+} as const;
+const viemChains = {
+  base,
+  "base-sepolia": baseSepolia,
 } as const;
 
 const endpoints = [
@@ -38,6 +46,13 @@ function arrayValue(input: unknown, key: string): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
+function priceDelta(basePrice: string, finalPrice: string): string {
+  const base = Number(basePrice);
+  const final = Number(finalPrice);
+  if (!Number.isFinite(base) || !Number.isFinite(final) || base <= 0 || final >= base) return "";
+  return `${Math.round((1 - final / base) * 100)}% off`;
+}
+
 function walletAddress(user: ReturnType<typeof usePrivy>["user"]): string {
   if (user?.wallet?.address) return user.wallet.address;
   const wallet = user?.linkedAccounts?.find((account) => account.type === "wallet" || account.type === "smart_wallet");
@@ -50,12 +65,6 @@ function linkedAccountTypes(user: ReturnType<typeof usePrivy>["user"]): string[]
 
 function baseUsdcBalanceCall(address: string): string {
   return `0x70a08231${address.toLowerCase().replace(/^0x/, "").padStart(64, "0")}`;
-}
-
-function erc20TransferCall(to: string, atomicAmount: string): string {
-  const recipient = to.toLowerCase().replace(/^0x/, "").padStart(64, "0");
-  const amount = BigInt(atomicAmount).toString(16).padStart(64, "0");
-  return `0xa9059cbb${recipient}${amount}`;
 }
 
 function formatUsdcBalance(hexBalance: string): string {
@@ -127,7 +136,7 @@ function PrivyHomeClient({ action, initialState }: Readonly<{
   const [balanceStatus, setBalanceStatus] = useState("Not connected");
   const [realPaymentStatus, setRealPaymentStatus] = useState("");
   const [realPaymentPending, setRealPaymentPending] = useState(false);
-  const realTxHashRef = useRef<HTMLInputElement>(null);
+  const xPaymentHeaderRef = useRef<HTMLInputElement>(null);
   const realPaymentSubmitRef = useRef<HTMLButtonElement>(null);
   const privyWallet = walletAddress(privy.user);
   const linked = linkedAccountTypes(privy.user);
@@ -138,6 +147,10 @@ function PrivyHomeClient({ action, initialState }: Readonly<{
   const offer = objectValue(state.offerResponse, "flovia");
   const accepts = arrayValue(state.offerResponse, "accepts");
   const requirement = accepts[0] && typeof accepts[0] === "object" && !Array.isArray(accepts[0]) ? accepts[0] as JsonObject : null;
+  const basePrice = offer ? stringValue(offer, "base_price") : "-";
+  const finalPrice = offer ? stringValue(offer, "final_price") : "-";
+  const policy = offer ? stringValue(offer, "policy") : "-";
+  const discountLabel = priceDelta(basePrice, finalPrice);
   const canRequestWithPrivy = privy.ready && privy.authenticated && Boolean(privyWallet);
   const requestModeLabel = state.requestMode === "privy" ? "Privy wallet" : state.requestMode === "pure_wallet" ? "Pure wallet" : "No preview";
   const canSendRealPayment = canRequestWithPrivy && state.status === "offer" && state.requestMode === "privy" && Boolean(requirement) && Boolean(activeWallet);
@@ -155,34 +168,29 @@ function PrivyHomeClient({ action, initialState }: Readonly<{
     if (!activeWallet || !requirement) return;
     const network = stringValue(requirement, "network", "");
     const chainId = chainIds[network as keyof typeof chainIds];
-    const asset = stringValue(requirement, "asset", "");
-    const payTo = stringValue(requirement, "payTo", "");
-    const amount = stringValue(requirement, "maxAmountRequired", "");
-    if (!chainId || !asset || !payTo || !amount) {
+    const chain = viemChains[network as keyof typeof viemChains];
+    if (!chainId || !chain) {
       setRealPaymentStatus("Missing x402 payment requirement fields.");
       return;
     }
 
     try {
       setRealPaymentPending(true);
-      setRealPaymentStatus("Opening Privy wallet for USDC transfer...");
+      setRealPaymentStatus("Opening Privy wallet to sign x402 payment...");
       const provider = await activeWallet.getEthereumProvider();
       const currentChainId = await provider.request({ method: "eth_chainId" });
       if (currentChainId !== chainId) {
         await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId }] });
       }
-      const txHash = await provider.request({
-        method: "eth_sendTransaction",
-        params: [{
-          from: activeWallet.address,
-          to: asset,
-          value: "0x0",
-          data: erc20TransferCall(payTo, amount),
-        }],
-      });
-      if (typeof txHash !== "string" || txHash.length === 0) throw new Error("Wallet did not return a transaction hash.");
-      setRealPaymentStatus(`Submitted ${txHash}. Recording payment...`);
-      if (realTxHashRef.current) realTxHashRef.current.value = txHash;
+      const walletClient = createWalletClient({
+        account: activeWallet.address as `0x${string}`,
+        chain,
+        transport: custom(provider as EIP1193Provider),
+      }).extend(publicActions);
+      const signer = walletClient as unknown as Parameters<typeof createPaymentHeader>[0];
+      const paymentHeader = await createPaymentHeader(signer, 1, requirement as PaymentRequirements);
+      setRealPaymentStatus("Signed x402 payment. Verifying and settling through facilitator...");
+      if (xPaymentHeaderRef.current) xPaymentHeaderRef.current.value = paymentHeader;
       realPaymentSubmitRef.current?.click();
     } catch (error) {
       setRealPaymentStatus(error instanceof Error ? error.message : "Real payment failed.");
@@ -366,36 +374,44 @@ function PrivyHomeClient({ action, initialState }: Readonly<{
                 <CardDescription>HTTP 402 offer preview returned by the merchant API. Payment simulation is available only from this preview state.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3 text-sm text-text-2">
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <div className="rounded-lg border bg-surface-subtle p-3">
-                    <p className="text-xs uppercase tracking-wide text-text-mute">Base</p>
-                    <p className="mt-1 font-medium text-text-1">{offer ? stringValue(offer, "base_price") : "-"}</p>
-                  </div>
-                  <div className="rounded-lg border border-primary/20 bg-mesh-blue-dim p-3">
-                    <p className="text-xs uppercase tracking-wide text-primary">Final</p>
-                    <p className="mt-1 font-medium text-text-1">{offer ? stringValue(offer, "final_price") : "-"}</p>
-                  </div>
-                  <div className="rounded-lg border bg-surface-subtle p-3">
-                    <p className="text-xs uppercase tracking-wide text-text-mute">Policy</p>
-                    <p className="mt-1 font-medium text-text-1">{offer ? stringValue(offer, "policy") : "-"}</p>
+                <div className="rounded-xl border border-primary/20 bg-mesh-blue-dim p-4">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-text-mute">Request mode</p>
+                      <p className="mt-1 text-lg font-semibold text-text-1">{requestModeLabel}</p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div>
+                        <p className="text-xs uppercase tracking-wide text-text-mute">Base</p>
+                        <p className={discountLabel ? "mt-1 text-lg font-medium text-text-3 line-through" : "mt-1 text-lg font-semibold text-text-1"}>{basePrice} USDC</p>
+                      </div>
+                      <ArrowRight className="size-5 text-text-mute" />
+                      <div>
+                        <p className="text-xs uppercase tracking-wide text-primary">Final</p>
+                        <p className="display mt-1 text-4xl font-semibold text-primary">{finalPrice} USDC</p>
+                      </div>
+                    </div>
+                    <Badge className={discountLabel ? "border-primary/30 bg-primary text-primary-foreground" : undefined}>{discountLabel || policy}</Badge>
                   </div>
                 </div>
                 <div className="rounded-lg border bg-surface-subtle p-3">
-                  <p><span className="text-text-mute">Request mode:</span> {requestModeLabel}</p>
+                  <p><span className="text-text-mute">Policy:</span> {policy}</p>
                   <p><span className="text-text-mute">Reason codes:</span> {offer ? arrayValue(offer, "reason_codes").join(", ") || "-" : "-"}</p>
                   <p><span className="text-text-mute">x402 amount:</span> {requirement ? stringValue(requirement, "maxAmountRequired") : "-"}</p>
                   <p><span className="text-text-mute">Network:</span> {requirement ? stringValue(requirement, "network") : "-"}</p>
                 </div>
-                <Button type="submit" name="intent" value="simulate-payment" variant="secondary" disabled={pending || !offer || state.status !== "offer"}>
-                  <CreditCard className="size-4" />
-                  Simulate payment from preview
-                </Button>
-                <input ref={realTxHashRef} type="hidden" name="real_tx_hash" />
+                <div className="flex flex-col gap-4 pt-2 sm:flex-row sm:items-center">
+                  <Button type="submit" name="intent" value="simulate-payment" variant="secondary" disabled={pending || !offer || state.status !== "offer"}>
+                    <CreditCard className="size-4" />
+                    Simulate payment from preview
+                  </Button>
+                  <Button type="button" disabled={pending || realPaymentPending || !canSendRealPayment} onClick={() => void sendRealPrivyPayment()}>
+                    <CreditCard className="size-4" />
+                    Send real x402 with Privy
+                  </Button>
+                </div>
+                <input ref={xPaymentHeaderRef} type="hidden" name="x_payment_header" />
                 <button ref={realPaymentSubmitRef} type="submit" name="intent" value="send-real-payment" className="hidden" aria-hidden="true" tabIndex={-1} />
-                <Button type="button" disabled={pending || realPaymentPending || !canSendRealPayment} onClick={() => void sendRealPrivyPayment()}>
-                  <CreditCard className="size-4" />
-                  Send real tx with Privy
-                </Button>
                 {realPaymentStatus ? <p className="text-xs text-text-3">{realPaymentStatus}</p> : null}
               </CardContent>
             </Card>

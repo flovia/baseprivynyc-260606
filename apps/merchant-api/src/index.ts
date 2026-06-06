@@ -1,8 +1,9 @@
 import { defaultConfig } from "@flovia-baseprivynyc/config";
-import { floviaAdaptive402 } from "@flovia-baseprivynyc/sdk";
+import { floviaAdaptive402, type PaymentMode } from "@flovia-baseprivynyc/sdk";
 import { Hono } from "hono";
 
 export const app = new Hono();
+const paymentMode: PaymentMode = process.env.FLOVIA_PAYMENT_MODE === "x402" ? "x402" : "simulation";
 
 const merchantOptions = {
   merchantId: defaultConfig.demoMerchantId,
@@ -11,7 +12,7 @@ const merchantOptions = {
   network: defaultConfig.network,
   currency: defaultConfig.currency,
   category: "market_signal",
-  paymentMode: "simulation" as const,
+  paymentMode,
   enableNextOffer: true,
 };
 

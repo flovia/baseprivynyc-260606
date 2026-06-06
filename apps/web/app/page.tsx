@@ -106,23 +106,27 @@ async function homeAction(state: HomeState, formData: FormData): Promise<HomeSta
       const requestId = stringValue(extra, "request_id");
       if (!quoteId || !requestId) throw new Error("Missing quote metadata; send a merchant request first.");
       const paymentWallet = state.requestWallet || wallet;
-      const realTxHash = formString(formData, "real_tx_hash", "");
-      if (intent === "send-real-payment" && !realTxHash) throw new Error("Missing real payment transaction hash.");
+      const xPaymentHeader = formString(formData, "x_payment_header", "");
+      if (intent === "send-real-payment" && !xPaymentHeader) throw new Error("Missing signed x402 payment header.");
+      const paymentHeader = intent === "send-real-payment"
+        ? xPaymentHeader
+        : JSON.stringify({
+          quote_id: quoteId,
+          request_id: requestId,
+          tx_hash: `sim_ui_${crypto.randomUUID()}`,
+          amount: stringValue(flovia, "final_price") ?? stringValue(extra, "display_price") ?? defaultConfig.endpointPrices.premiumSignal,
+          wallet: paymentWallet,
+          offer_selected: stringValue(flovia, "policy") ?? "mvp_simulation",
+          simulation: true,
+        });
 
       const response = await fetch(`${defaultConfig.merchantApiUrl}${endpoint}`, {
         method: "GET",
         headers: {
           "x-agent-wallet": paymentWallet,
           "x-agent-budget": budget,
-          "x-payment": JSON.stringify({
-            quote_id: quoteId,
-            request_id: requestId,
-            tx_hash: realTxHash || `sim_ui_${crypto.randomUUID()}`,
-            amount: stringValue(flovia, "final_price") ?? stringValue(extra, "display_price") ?? defaultConfig.endpointPrices.premiumSignal,
-            wallet: paymentWallet,
-            offer_selected: stringValue(flovia, "policy") ?? "mvp_simulation",
-            simulation: intent !== "send-real-payment",
-          }),
+          "x-payment": paymentHeader,
+          ...(intent === "send-real-payment" ? { "x-flovia-quote-id": quoteId } : {}),
         },
         cache: "no-store",
       });
@@ -135,7 +139,7 @@ async function homeAction(state: HomeState, formData: FormData): Promise<HomeSta
         paidResponse: body,
         status: "paid",
         message: intent === "send-real-payment"
-          ? `Real Privy wallet transaction recorded: ${realTxHash}.`
+          ? "Real x402 payment verified and settled through facilitator."
           : "Payment simulated. The merchant dashboard now shows the request and conversion.",
       };
     }

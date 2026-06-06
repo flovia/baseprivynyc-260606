@@ -54,6 +54,10 @@ type PaymentRequirement = {
   scheme: "exact";
   network: Network;
   maxAmountRequired: string;
+  resource: string;
+  description: string;
+  mimeType: string;
+  maxTimeoutSeconds: number;
   asset: string;
   payTo: string;
   extra: Record<string, unknown>;
@@ -103,6 +107,7 @@ function parsePaymentHeader(value: string | null | undefined): PaymentHeader | n
 function buildRequirement(input: {
   quote: OfferQuoteResponse;
   requestId: string;
+  endpoint: string;
   options: FloviaAdaptive402Options;
   paymentMode: PaymentMode;
 }): PaymentRequirement {
@@ -110,6 +115,10 @@ function buildRequirement(input: {
     scheme: "exact",
     network: input.options.network,
     maxAmountRequired: toAtomic(input.quote.offer.final_price),
+    resource: input.endpoint,
+    description: `${input.options.category} access for ${input.endpoint}`,
+    mimeType: "application/json",
+    maxTimeoutSeconds: 300,
     asset: usdcAssetAddresses[input.options.network],
     payTo: input.options.payTo,
     extra: {
@@ -243,6 +252,7 @@ export function floviaAdaptive402(options: FloviaAdaptive402Options): Middleware
         const requirement = buildRequirement({
           quote: storedQuote.quote,
           requestId: storedQuote.requestId,
+          endpoint: storedQuote.endpoint,
           options,
           paymentMode,
         });
@@ -342,7 +352,7 @@ export function floviaAdaptive402(options: FloviaAdaptive402Options): Middleware
       {
         error: "Payment Required",
         accepts: [
-          buildRequirement({ quote, requestId, options, paymentMode }),
+          buildRequirement({ quote, requestId, endpoint, options, paymentMode }),
         ],
         flovia: {
           type: quote.offer.type,
