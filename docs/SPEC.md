@@ -241,6 +241,8 @@ Endpoints:
 
 ```txt
 GET /api/premium-signal
+
+Optional stretch endpoints:
 GET /api/basic-signal
 GET /api/premium-signal-plus
 ```
@@ -329,12 +331,23 @@ Models:
 
 ```txt
 - User
+- UserIdentitySignal
 - AgentSession
 - Merchant
 - Endpoint
 - OfferQuote
 - RequestEvent
 - PaymentEvent
+```
+
+Identity/history requirements:
+
+```txt
+- User stores privyDid, walletAddress, and createdAt.
+- UserIdentitySignal stores normalized identity confidence and linked account type flags.
+- PaymentEvent is linked to privyDid internally when Flovia can resolve the wallet/session to a Flovia user.
+- Do not store raw linked account profile data unless it is needed for the demo and explicitly excluded from merchant responses.
+- Do not require merchants to send privyDid. Merchant-visible flows should use wallet, request_id, quote_id, or an opaque Flovia-scoped buyer reference when needed.
 ```
 
 ### packages/sdk
@@ -373,16 +386,6 @@ app.get(
     basePrice: "0.05",
     currency: "USDC",
     category: "market_signal",
-    alternativeEndpoints: [
-      {
-        path: "/api/basic-signal",
-        price: "0.01",
-      },
-    ],
-    premiumUpsell: {
-      path: "/api/premium-signal-plus",
-      price: "0.08",
-    },
   }),
   async (c) => {
     return c.json({
@@ -467,6 +470,199 @@ packages/ui
 
 Offer Context is the pricing decision returned by Flovia to the merchant.
 
+## MVP Offer Patterns
+
+MVP offer logic is intentionally narrow. Build these patterns in priority order:
+
+```txt
+1. Verified Privy User Discount / Trial Unlock
+3. Returning Privy Buyer Upsell / Loyalty Price
+2. Persona-based API Bundle, only if time allows
+```
+
+Pattern 1 is the primary demo path. Pattern 3 is the stretch demo path. Pattern 2 should be treated as a contextual variant of the offer engine, not the core product.
+
+## JSON Naming Convention
+
+Use `snake_case` for Flovia API payloads and Flovia extension fields in this MVP.
+
+```txt
+- Use reason_codes for arrays.
+- Use base_price and final_price for the current payable offer.
+- Use currency for the display/config currency.
+- Use unlock.target_final_price for unlockable discounts.
+- Do not use current_price, unlocked_price, original_price, or price in MVP current-request flovia schemas.
+```
+
+Canonical current-offer shape:
+
+```json
+{
+  "type": "verified_user_discount",
+  "base_price": "0.05",
+  "final_price": "0.025",
+  "currency": "USDC",
+  "policy": "verified_user_discount",
+  "reason_codes": ["verified_privy_user"]
+}
+```
+
+Unlockable discounts use the same current-offer fields and add `unlock`:
+
+```json
+{
+  "type": "unlockable_discount",
+  "base_price": "0.05",
+  "final_price": "0.05",
+  "currency": "USDC",
+  "policy": "base_price_until_verified",
+  "reason_codes": ["low_identity_confidence"],
+  "unlock": {
+    "type": "link_account",
+    "condition": "link_email_or_farcaster",
+    "target_final_price": "0.025"
+  }
+}
+```
+
+## Authorization Model
+
+Privy identity context and Flovia agent authorization are separate.
+
+```txt
+Privy:
+  - Authenticates the user.
+  - Provides wallet and linked-account signals inside Flovia's own Privy app.
+
+Flovia:
+  - Stores agent authorization.
+  - Enforces budget, category, merchant, and expiration policy.
+  - Computes the offer returned to the merchant.
+```
+
+For MVP discount eligibility, require both Flovia-recognized Privy identity context and active Flovia agent authorization.
+
+## Money Handling
+
+Use different money representations for app-level prices and x402 wire payloads.
+
+```txt
+- Flovia API, config, dashboard, and flovia extension prices use decimal USDC strings, such as "0.025".
+- Real x402 payment requirements use the atomic-unit amount and asset identifier required by the x402 protocol.
+- Do not use JavaScript number arithmetic for money. Use integer atomic units or a decimal library.
+```
+
+### Pattern 1: Verified Privy User Discount / Trial Unlock
+
+Flovia changes the current request's price based on normalized Privy identity confidence.
+
+```txt
+wallet-only Privy user
+  -> full price
+  -> unlockable discount prompt
+
+email / Farcaster linked Privy user
+  -> verified user discount
+  -> lower x402 payable amount
+
+passkey / MFA user
+  -> strong auth signal
+  -> eligible for verified user pricing or future trial rules
+```
+
+Demo path:
+
+```txt
+Before:
+wallet-only user -> $0.05
+
+After:
+same user links email or Farcaster with Privy -> $0.025
+```
+
+Account linking re-quote flow:
+
+```txt
+1. User links email or Farcaster in the Flovia Privy UI.
+2. Flovia backend refreshes normalized linked-account state for the logged-in Privy user.
+3. Flovia stores the updated UserIdentitySignal.
+4. Agent retries the merchant request.
+5. Merchant SDK requests a fresh quote from Flovia.
+6. Offer engine returns verified_user_discount with final_price = "0.025".
+```
+
+For demos, seed or create the Flovia user record before the merchant quote flow so the wallet can be resolved to local Flovia identity context without relying on fallback Privy wallet lookup.
+
+Merchant-facing rule:
+
+```txt
+Do not expose raw email, Farcaster username, GitHub username, OAuth profile, passkey details, or MFA details to merchants.
+
+Expose only normalized fields such as:
+- segment
+- policy
+- reason code
+- offer type
+```
+
+### Pattern 3: Returning Privy Buyer Upsell / Loyalty Price
+
+Flovia uses Privy DID as the stable user identifier inside Flovia's own app and combines it with Flovia-observed request/payment events.
+
+This pattern is used after a successful paid response. It should not change the current request's settled payment amount.
+
+```txt
+first successful payment
+  -> starter upsell
+
+2+ successful payments
+  -> loyalty bundle
+
+previous premium endpoint usage
+  -> premium continuation offer
+```
+
+MVP should not implement complex churn-risk or high-intent scoring unless the simple repeat-buyer path is already complete.
+
+### Pattern 2: Persona-based API Bundle
+
+Persona bundles are optional for MVP.
+
+If implemented, use linked account type only as a normalized context signal:
+
+```txt
+GitHub linked user
+  -> developer research bundle
+
+Farcaster linked user
+  -> social wallet intelligence bundle
+```
+
+Merchant response should not expose raw linked account identifiers.
+
+## Offer Field Semantics
+
+Use separate fields for current-request pricing and post-payment next-best offers.
+
+```txt
+flovia
+  Current request offer. Usually appears inside HTTP 402.
+  It can change the current payable amount or describe an unlock condition.
+
+flovia_next_offer
+  Post-payment next offer. Usually appears inside HTTP 200.
+  It does not change the current paid response or settled payment amount.
+```
+
+Rules:
+
+```txt
+- Use flovia for personalized x402 payment requirements.
+- Use flovia_next_offer for retention, loyalty bundles, starter upsells, and premium continuation offers.
+- Standard x402 clients may ignore both fields and pay accepts[0] when present.
+- Flovia-aware agents should parse these fields and decide whether to link accounts, pay, or select a future offer.
+```
+
 Example:
 
 ```json
@@ -474,32 +670,18 @@ Example:
   "buyer": {
     "wallet": "0xabc...",
     "source": "flovia_privy_authorized_agent",
-    "segment": "new_authorized_agent",
-    "agent_score": 72
+    "segment": "verified_privy_user"
   },
   "offer": {
     "base_price": "0.05",
-    "final_price": "0.03",
+    "final_price": "0.025",
     "currency": "USDC",
-    "policy": "first_call_discount",
-    "bundle": {
-      "id": "signal_5_pack",
-      "calls": 5,
-      "price": "0.12"
-    },
-    "alternative_endpoint": {
-      "path": "/api/basic-signal",
-      "price": "0.01"
-    },
-    "premium_upsell": {
-      "path": "/api/premium-signal-plus",
-      "price": "0.08"
-    }
+    "type": "verified_user_discount",
+    "policy": "verified_user_discount"
   },
   "reason_codes": [
     "privy_agent_authorized",
-    "new_user",
-    "low_risk_wallet"
+    "verified_privy_user"
   ]
 }
 ```
@@ -508,6 +690,41 @@ Example:
 
 Merchant returns a normal x402-compatible payment requirement plus a `flovia` extension field.
 
+## MVP Payment Mode
+
+MVP supports two payment modes:
+
+```txt
+simulation mode:
+  - May use simplified accepts[] examples for local demos.
+  - Must be clearly labeled as simulation-only.
+
+real x402 mode:
+  - accepts[] must use the exact x402 payment requirement schema.
+  - Amounts must be atomic units, for example 0.05 USDC -> "50000" for a 6-decimal USDC asset.
+  - asset must be the x402-required asset identifier, such as the USDC contract address for the selected network, not the display symbol "USDC".
+```
+
+`flovia` display prices may remain decimal USDC strings in both modes. `accepts[]` must be protocol-valid in real x402 mode.
+
+Real x402-shaped example fields:
+
+```json
+{
+  "scheme": "exact",
+  "network": "base-sepolia",
+  "maxAmountRequired": "25000",
+  "asset": "0xUSDCAssetAddressOnBaseSepolia",
+  "payTo": "0xMerchantWallet"
+}
+```
+
+### Wallet-only Privy user
+
+Wallet-only users receive the current full price plus an unlockable discount condition.
+
+This example uses real x402-shaped payment fields with placeholder asset addresses.
+
 ```json
 {
   "error": "Payment Required",
@@ -515,38 +732,99 @@ Merchant returns a normal x402-compatible payment requirement plus a `flovia` ex
     {
       "scheme": "exact",
       "network": "base-sepolia",
-      "asset": "USDC",
-      "amount": "0.03",
+      "maxAmountRequired": "50000",
+      "asset": "0xUSDCAssetAddressOnBaseSepolia",
       "payTo": "0xMerchantWallet"
     }
   ],
   "flovia": {
-    "basePrice": "0.05",
-    "finalPrice": "0.03",
-    "policy": "first_call_discount",
-    "reasonCodes": [
+    "type": "unlockable_discount",
+    "base_price": "0.05",
+    "final_price": "0.05",
+    "currency": "USDC",
+    "policy": "base_price_until_verified",
+    "reason_codes": ["low_identity_confidence"],
+    "unlock": {
+      "type": "link_account",
+      "condition": "link_email_or_farcaster",
+      "target_final_price": "0.025"
+    }
+  }
+}
+```
+
+### Verified Privy user
+
+Email-linked or Farcaster-linked users receive the discounted payable amount directly in `accepts[0]`.
+
+This example uses real x402-shaped payment fields with placeholder asset addresses.
+
+```json
+{
+  "error": "Payment Required",
+  "accepts": [
+    {
+      "scheme": "exact",
+      "network": "base-sepolia",
+      "maxAmountRequired": "25000",
+      "asset": "0xUSDCAssetAddressOnBaseSepolia",
+      "payTo": "0xMerchantWallet"
+    }
+  ],
+  "flovia": {
+    "type": "verified_user_discount",
+    "base_price": "0.05",
+    "final_price": "0.025",
+    "currency": "USDC",
+    "policy": "verified_user_discount",
+    "reason_codes": ["verified_privy_user"]
+  }
+}
+```
+
+### Optional extended offer response
+
+Bundles, alternative endpoints, and premium upsells are optional/stretch fields. Do not implement them before the verified-user discount path is working.
+
+```json
+{
+  "error": "Payment Required",
+  "accepts": [
+    {
+      "scheme": "exact",
+      "network": "base-sepolia",
+      "maxAmountRequired": "25000",
+      "asset": "0xUSDCAssetAddressOnBaseSepolia",
+      "payTo": "0xMerchantWallet"
+    }
+  ],
+  "flovia": {
+    "base_price": "0.05",
+    "final_price": "0.025",
+    "type": "verified_user_discount",
+    "policy": "verified_user_discount",
+    "reason_codes": [
       "privy_agent_authorized",
-      "new_user",
-      "low_risk_wallet"
+      "verified_privy_user"
     ],
-    "bundleOffers": [
+    "bundle_offers": [
       {
         "id": "signal_5_pack",
         "calls": 5,
         "price": "0.12"
       }
     ],
-    "alternativeEndpoints": [
+    "alternative_endpoints": [
       {
         "path": "/api/basic-signal",
         "price": "0.01",
         "reason": "budget_friendly_option"
       }
     ],
-    "premiumUpsell": {
+    "premium_upsell": {
       "path": "/api/premium-signal-plus",
       "price": "0.08",
-      "reason": "high_intent_agent"
+      "reason": "repeat_privy_buyer"
     }
   }
 }
@@ -558,6 +836,45 @@ Rules:
 - Standard x402 clients can ignore flovia and pay accepts[0].
 - Flovia-aware agents should parse flovia and choose the best offer.
 - Merchant must ensure the final payable amount matches the chosen offer.
+- In real x402 mode, accepts[0] must match the chosen offer's final_price converted to atomic units.
+```
+
+## Successful Paid Response With Next Offer
+
+After successful payment, merchant may include `flovia_next_offer` in the normal API response.
+
+Example for first successful payment:
+
+```json
+{
+  "data": {
+    "result": "Agentic payments are trending upward across Base ecosystem builders."
+  },
+  "flovia_next_offer": {
+    "type": "starter_upsell",
+    "endpoint": "/api/premium-signal-plus",
+    "price": "0.03",
+    "reason_codes": ["first_successful_payment"]
+  }
+}
+```
+
+Example for repeat buyer:
+
+```json
+{
+  "data": {
+    "result": "Agentic payments are trending upward across Base ecosystem builders."
+  },
+  "flovia_next_offer": {
+    "type": "loyalty_bundle",
+    "bundle_id": "pro_usage_pack",
+    "price": "0.15",
+    "included_calls": 10,
+    "savings_bps": 2000,
+    "reason_codes": ["repeat_privy_buyer"]
+  }
+}
 ```
 
 ## Flovia API
@@ -565,6 +882,15 @@ Rules:
 ### POST /v1/offers/quote
 
 Called by merchant SDK before returning HTTP 402.
+
+Lifecycle rules:
+
+```txt
+- Merchant SDK generates request_id once per protected request.
+- Flovia generates quote_id for each quote response.
+- quote_id expires after 5 minutes in MVP.
+- Merchant must not accept payment for an expired quote unless it requests a fresh quote.
+```
 
 Request:
 
@@ -593,32 +919,18 @@ Response:
   "buyer": {
     "wallet": "0xabc...",
     "source": "flovia_privy_authorized_agent",
-    "segment": "new_authorized_agent",
-    "agent_score": 72
+    "segment": "verified_privy_user"
   },
   "offer": {
     "base_price": "0.05",
-    "final_price": "0.03",
+    "final_price": "0.025",
     "currency": "USDC",
-    "policy": "first_call_discount",
-    "bundle": {
-      "id": "signal_5_pack",
-      "calls": 5,
-      "price": "0.12"
-    },
-    "alternative_endpoint": {
-      "path": "/api/basic-signal",
-      "price": "0.01"
-    },
-    "premium_upsell": {
-      "path": "/api/premium-signal-plus",
-      "price": "0.08"
-    }
+    "type": "verified_user_discount",
+    "policy": "verified_user_discount"
   },
   "reason_codes": [
     "privy_agent_authorized",
-    "new_user",
-    "low_risk_wallet"
+    "verified_privy_user"
   ]
 }
 ```
@@ -626,6 +938,13 @@ Response:
 ### POST /v1/events/request
 
 Called when merchant returns HTTP 402.
+
+Idempotency:
+
+```txt
+- Treat repeated request events with the same request_id and status as duplicates.
+- Store the first event and ignore later duplicates unless the status changes.
+```
 
 ```json
 {
@@ -635,8 +954,9 @@ Called when merchant returns HTTP 402.
   "endpoint": "/api/premium-signal",
   "wallet": "0xabc...",
   "status": "offer_returned",
-  "final_price": "0.03",
-  "policy": "first_call_discount",
+  "final_price": "0.025",
+  "policy": "verified_user_discount",
+  "offer_type": "verified_user_discount",
   "timestamp": "2026-06-06T12:00:00Z"
 }
 ```
@@ -645,6 +965,13 @@ Called when merchant returns HTTP 402.
 
 Called after successful x402 payment.
 
+Idempotency:
+
+```txt
+- Treat repeated payment events with the same quote_id and tx_hash as duplicates.
+- If tx_hash is unavailable in simulation mode, use quote_id + offer_selected as the idempotency key.
+```
+
 ```json
 {
   "request_id": "req_123",
@@ -652,11 +979,11 @@ Called after successful x402 payment.
   "merchant_id": "merch_123",
   "endpoint": "/api/premium-signal",
   "wallet": "0xabc...",
-  "amount": "0.03",
+  "amount": "0.025",
   "currency": "USDC",
   "network": "base-sepolia",
   "tx_hash": "0x...",
-  "offer_selected": "first_call_discount",
+  "offer_selected": "verified_user_discount",
   "timestamp": "2026-06-06T12:00:15Z"
 }
 ```
@@ -680,10 +1007,10 @@ Returns merchant dashboard metrics.
   },
   "segments": [
     {
-      "segment": "new_authorized_agent",
+      "segment": "verified_privy_user",
       "conversion_rate": 0.52,
-      "arpu": "0.03",
-      "best_offer": "first_call_discount"
+      "arpu": "0.025",
+      "best_offer": "verified_user_discount"
     }
   ],
   "reason_codes": [
@@ -721,12 +1048,14 @@ Signals:
 type BuyerSignals = {
   isFloviaPrivyUser: boolean;
   hasActiveAgentAuthorization: boolean;
+  privyDid?: string;
+  identityConfidence: "anonymous" | "wallet_only" | "verified_contact" | "verified_social" | "strong_auth";
+  linkedAccountTypes: Array<"email" | "farcaster" | "github" | "passkey" | "mfa">;
   isNewUser: boolean;
   pastPaidCalls: number;
   merchantPaidCalls: number;
   paymentSuccessRate: number;
   budgetRemainingUsdc: string;
-  onchainRiskScore: number;
 };
 ```
 
@@ -736,30 +1065,50 @@ Rules:
 1. If no Flovia/Privy context:
    segment = anonymous_wallet
    final_price = base_price
-   no bundle
-
-2. If active Privy-authorized agent and first merchant call:
-   segment = new_authorized_agent
-   final_price = base_price * 0.6
-   policy = first_call_discount
-
-3. If repeat agent and payment_success_rate >= 0.9:
-   segment = repeat_agent
-   final_price = base_price * 0.8
-   bundle = 5 calls for base_price * 2.4
-
-4. If declared budget is low:
-   offer alternative endpoint at lower price
-
-5. If high score and task category is market_signal:
-   offer premium upsell
-
-6. If risk score is poor:
    no discount
-   optionally higher price or prepay only
+
+2. If Flovia Privy user is wallet-only:
+   segment = wallet_only_privy_user
+   final_price = base_price
+   offer.type = unlockable_discount
+   unlock_condition = link_email_or_farcaster
+   reason_codes = [low_identity_confidence]
+
+3. If Flovia Privy user has email or Farcaster linked:
+   segment = verified_privy_user
+   final_price = base_price * 0.5
+   policy = verified_user_discount
+   reason_codes = [verified_privy_user]
+
+4. If Flovia Privy user has passkey or MFA:
+   identity_confidence = strong_auth
+   segment = verified_privy_user
+   final_price = base_price * 0.5
+   policy = verified_user_discount
+   reason_codes = [strong_auth_privy_user]
+
+5. If successful paid response is being returned and buyer has no prior paid calls:
+   include flovia_next_offer.type = starter_upsell
+   reason_codes = [first_successful_payment]
+
+6. If successful paid response is being returned and buyer has 2+ successful paid calls:
+   include flovia_next_offer.type = loyalty_bundle
+   reason_codes = [repeat_privy_buyer]
+
+7. If GitHub or Farcaster linked bundle variants are implemented:
+   return contextual bundle only as a normalized offer type
+   do not expose raw account identifiers
+
+8. Future only: if risk scoring is implemented later:
+   do not expose raw risk signals to merchants
+   record risk outcome internally and fall back to base price when needed
 ```
 
-Scoring:
+Future-only scoring:
+
+MVP pricing rules do not use agent score. Keep scoring out of the MVP offer decision unless the rule-based identity discount path is already complete.
+
+If retained, `computeAgentScore` is an internal dashboard or future pricing helper only and must not be sent to merchants.
 
 ```ts
 function computeAgentScore(signals: BuyerSignals): number {
@@ -767,10 +1116,12 @@ function computeAgentScore(signals: BuyerSignals): number {
 
   if (signals.isFloviaPrivyUser) score += 10;
   if (signals.hasActiveAgentAuthorization) score += 15;
+  if (signals.identityConfidence === "verified_contact") score += 5;
+  if (signals.identityConfidence === "verified_social") score += 10;
+  if (signals.identityConfidence === "strong_auth") score += 15;
   if (signals.paymentSuccessRate >= 0.9) score += 10;
   if (signals.pastPaidCalls >= 5) score += 10;
   if (signals.merchantPaidCalls >= 2) score += 5;
-  if (signals.onchainRiskScore < 40) score -= 20;
 
   return Math.max(0, Math.min(100, score));
 }
@@ -787,8 +1138,8 @@ Summary cards:
 - Revenue USDC
 - Revenue lift vs fixed price
 - Discount conversions
-- Bundle conversions
-- Premium upsells
+- Optional: Bundle conversions
+- Optional: Premium upsells
 ```
 
 Recent requests table:
@@ -837,8 +1188,8 @@ Recommended seed:
 - 0.84 USDC revenue
 - +31% estimated revenue lift
 - 9 discount conversions
-- 4 bundle conversions
-- 2 premium upsells
+- Optional: 4 bundle conversions
+- Optional: 2 premium upsells
 ```
 
 ## Security And Privacy Rules
@@ -847,13 +1198,15 @@ Recommended seed:
 - Do not send Privy access token to merchant.
 - Do not send Privy refresh token to merchant.
 - Do not expose email, Farcaster username, OAuth profile, or passkey details to merchant.
-- Merchant sees only normalized signals: segment, score, reason codes, offer decision.
+- Merchant sees only normalized signals: segment, policy, reason codes, and offer decision.
 - Merchant SDK authenticates to Flovia with API key.
 - Flovia should verify that paid wallet matches quoted wallet when possible.
 - If wallet mismatch occurs, record a risk event and reject or fall back to base price.
 ```
 
 Privy wallet lookup rule:
+
+Fallback lookup should be disabled by default unless Privy's API support and Flovia app permissions are verified.
 
 ```txt
 If wallet exists in Flovia DB:
@@ -939,16 +1292,17 @@ Build in this order:
 2. packages/offer-engine
 3. packages/db
 4. apps/api
-5. packages/sdk
-6. apps/merchant-api
-7. apps/demo-agent
-8. apps/web
+5. apps/web minimal Privy shell
+6. packages/sdk
+7. apps/merchant-api
+8. apps/demo-agent
+9. apps/web dashboard polish
 ```
 
 Reason:
 
 ```txt
-The quote API and SDK contract should be stable before investing in dashboard UI and demo polish.
+The quote API and SDK contract should be stable before investing in dashboard polish, but the Pattern 1 demo needs a minimal Privy UI before the merchant/agent flow is complete.
 ```
 
 ## MVP Phases
@@ -969,6 +1323,8 @@ The quote API and SDK contract should be stable before investing in dashboard UI
 ```txt
 - Add Privy login to Flovia UI
 - Show wallet address
+- Store Privy DID
+- Read normalized linked account state for email, Farcaster, GitHub, passkey, and MFA
 - Add agent authorization page
 - Store user and wallet in DB
 - Add default budget field: 0.25 USDC
@@ -979,7 +1335,9 @@ The quote API and SDK contract should be stable before investing in dashboard UI
 ```txt
 - Implement /v1/offers/quote
 - Implement rule-based pricing
-- Implement anonymous vs authorized vs repeat segments
+- Implement anonymous vs wallet-only Privy vs verified Privy segments
+- Implement unlockable discount and verified user discount
+- Implement returning-buyer next offer if time allows
 - Return Offer Context
 ```
 
@@ -998,7 +1356,8 @@ The quote API and SDK contract should be stable before investing in dashboard UI
 - CLI agent calls merchant API
 - Receives HTTP 402
 - Parses flovia offers
-- Chooses cheapest acceptable offer or bundle
+- Chooses whether to pay the current offer or trigger the unlock condition
+- Optional: chooses bundle if stretch bundle fields are implemented
 - Pays via x402 or uses simulation mode
 - Retries request
 ```
@@ -1017,13 +1376,18 @@ The quote API and SDK contract should be stable before investing in dashboard UI
 1. User opens Flovia.
 2. User logs in with Privy.
 3. Wallet appears and budget is set to `0.25 USDC`.
-4. User authorizes agent for `market_signal` category.
-5. Agent runs task: `Find the strongest signal around agentic payments today.`
-6. Agent calls `GET /api/premium-signal` on merchant API.
-7. Merchant receives personalized HTTP 402 from Flovia SDK.
-8. Agent chooses offer and pays or simulates payment.
-9. Merchant returns paid API response.
-10. Dashboard updates with conversion, revenue, discount, and segment.
+4. User starts as wallet-only Privy user.
+5. User authorizes agent for `market_signal` category.
+6. Agent runs task: `Find the strongest signal around agentic payments today.`
+7. Agent calls `GET /api/premium-signal` on merchant API.
+8. Merchant returns HTTP 402 at `$0.05` with `unlockable_discount` asking the user to link email or Farcaster.
+9. User links email or Farcaster in Privy.
+10. Agent retries `GET /api/premium-signal`.
+11. Merchant returns HTTP 402 at `$0.025` with `verified_user_discount`.
+12. Agent pays or simulates payment.
+13. Merchant returns paid API response.
+14. If stretch path is enabled, paid response includes `flovia_next_offer` for starter upsell or loyalty bundle.
+15. Dashboard updates with request, offer, conversion, revenue, discount, and segment.
 
 ## Acceptance Criteria
 
@@ -1032,11 +1396,14 @@ The demo is complete if:
 ```txt
 - User can login with Privy from Flovia UI.
 - User can authorize or simulate authorizing an agent.
+- Wallet-only Privy user receives full-price 402 plus unlockable discount condition.
+- Same user receives lower-price 402 after linking email or Farcaster in Privy.
 - Agent can call merchant API.
 - Merchant returns HTTP 402 with personalized Flovia offer.
-- Offer differs between anonymous wallet and Privy-authorized wallet.
+- Offer differs between wallet-only Privy user and verified Privy user.
 - Agent can pay USDC on Base/Base Sepolia via x402 or use explicit MVP simulation mode.
 - Merchant returns paid API response after payment.
+- Stretch: Returning buyer response includes flovia_next_offer based on Privy DID and Flovia-observed payment history.
 - Dashboard shows request, offer, conversion, revenue, and segment.
 ```
 
