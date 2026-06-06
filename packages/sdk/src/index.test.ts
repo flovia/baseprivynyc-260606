@@ -59,6 +59,68 @@ describe("floviaAdaptive402", () => {
     fetchSpy.mockRestore();
   });
 
+  test("x402 mode verifies and settles before serving protected handler", async () => {
+    const paymentEvents: Array<Record<string, unknown>> = [];
+    const fetchSpy = spyOn(globalThis, "fetch").mockImplementation((async (url: RequestInfo | URL, init?: RequestInit) => {
+      const href = String(url);
+      if (href.endsWith("/v1/offers/quote")) {
+        return Response.json({
+          quote_id: "quote_sdk_real_x402",
+          buyer: { wallet: "0xAgent", source: "flovia_privy_authorized_agent", segment: "verified_privy_user" },
+          offer: { type: "verified_user_discount", base_price: "0.05", final_price: "0.025", currency: "USDC", policy: "verified_user_discount" },
+          reason_codes: ["privy_agent_authorized", "verified_privy_user"],
+        });
+      }
+      if (href.endsWith("/v1/events/request")) return Response.json({ ok: true });
+      if (href.endsWith("/verify")) {
+        const body = JSON.parse(String(init?.body));
+        expect(body.paymentRequirements.maxAmountRequired).toBe("25000");
+        expect(body.paymentRequirements.extra.quote_id).toBe("quote_sdk_real_x402");
+        return Response.json({ isValid: true, payer: "0xAgent" });
+      }
+      if (href.endsWith("/settle")) return Response.json({ success: true, amount: "25000", txHash: "0xsettled" });
+      if (href.endsWith("/v1/events/payment")) {
+        const event = JSON.parse(String(init?.body));
+        paymentEvents.push(event);
+        return Response.json({ event, merchant_paid_calls: 1 });
+      }
+      return Response.json({ ok: true });
+    }) as unknown as typeof fetch);
+
+    const app = new Hono().get(
+      "/paid",
+      floviaAdaptive402({ ...options, paymentMode: "x402", x402FacilitatorUrl: "http://facilitator.test" }),
+      (c) => c.json({ signal: "ok" }),
+    );
+    const offerResponse = await app.request("/paid", { headers: { "x-agent-wallet": "0xAgent" } });
+    const offer = await offerResponse.json();
+    const paidResponse = await app.request("/paid", {
+      headers: {
+        "x-agent-wallet": "0xAgent",
+        "x-payment": JSON.stringify({ quote_id: offer.accepts[0].extra.quote_id, x402Version: 1, scheme: "exact", network: "base-sepolia", payload: { authorization: "0xsigned" } }),
+      },
+    });
+    const paid = await paidResponse.json();
+
+    expect(paidResponse.status).toBe(200);
+    expect(paid.signal).toBe("ok");
+    expect(paymentEvents[0].amount).toBe("0.025");
+    expect(paymentEvents[0].tx_hash).toBe("0xsettled");
+    expect(paymentEvents[0].offer_selected).toBe("verified_user_discount");
+    fetchSpy.mockRestore();
+  });
+
+  test("x402 mode rejects simulation payments", async () => {
+    const fetchSpy = spyOn(globalThis, "fetch").mockImplementation((async () => Response.json({ ok: true })) as unknown as typeof fetch);
+    const app = new Hono().get("/paid", floviaAdaptive402({ ...options, paymentMode: "x402" }), (c) => c.json({ ok: true }));
+    const response = await app.request("/paid", { headers: { "x-payment": JSON.stringify({ simulation: true }) } });
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.error).toBe("simulation_payment_not_allowed");
+    fetchSpy.mockRestore();
+  });
+
   test("injects flovia_next_offer into paid JSON response", async () => {
     const fetchSpy = spyOn(globalThis, "fetch").mockImplementation((async () => Response.json({
       event: {

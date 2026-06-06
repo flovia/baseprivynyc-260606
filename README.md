@@ -167,11 +167,11 @@ curl -X POST http://localhost:8791/v1/dev/users/0xAgentWallet/link \
 
 The SDK now accepts `paymentMode: "simulation" | "x402"`.
 
-`simulation` is the current local demo mode and labels `accepts[0].extra.simulation = true`. `x402` emits a facilitator-facing x402-shaped requirement without the simulation marker, but real facilitator verification is still a placeholder for a later phase.
+`simulation` is the current local demo mode and labels `accepts[0].extra.simulation = true`. `x402` emits a facilitator-facing x402-shaped requirement without the simulation marker, rejects simulation payments, and verifies/settles `X-PAYMENT` through `X402_FACILITATOR_URL` before serving the protected handler. Flovia-aware clients should pass `accepts[0].extra.quote_id` back as `quote_id` in JSON `X-PAYMENT` or as `X-Flovia-Quote-Id` so the SDK can enforce quote TTL and exact amount matching.
 
 ## MVP Notes
 
-This implementation intentionally uses in-memory storage and simulated payment headers. Real Privy login, embedded wallets, Drizzle/Postgres persistence, and x402 facilitator verification are later phases described in `docs/worklogs/001-xxx.md` and `docs/worklogs/002-xxx.md`.
+This implementation intentionally uses in-memory storage. Real Privy login is partially integrated, x402 facilitator verification is available in SDK `paymentMode: "x402"`, and Drizzle/Postgres persistence remains a later phase described in `docs/worklogs/003-real-integration.md`.
 
 ## License
 

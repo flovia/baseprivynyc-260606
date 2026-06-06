@@ -12,6 +12,7 @@ export const usdcAssetAddresses = {
 export const defaultConfig = {
   floviaApiUrl: process.env.FLOVIA_API_URL ?? "http://localhost:8791",
   merchantApiUrl: process.env.MERCHANT_API_URL ?? "http://localhost:8790",
+  x402FacilitatorUrl: process.env.X402_FACILITATOR_URL ?? "https://x402.org/facilitator",
   demoMerchantId: process.env.FLOVIA_MERCHANT_ID ?? "merch_demo",
   demoApiKey: process.env.FLOVIA_API_KEY ?? "demo-api-key",
   merchantWallet: process.env.MERCHANT_WALLET ?? "0xMerchantWallet",
