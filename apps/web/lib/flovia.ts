@@ -22,6 +22,30 @@ export type DashboardData = {
     arpu: string;
     best_offer: string;
   }>;
+  channels: Array<{
+    channel: string;
+    requests: number;
+    offers_returned: number;
+    paid_conversions: number;
+    conversion_rate: number;
+    revenue: string;
+    best_segment: string;
+  }>;
+  bundle_insights: Array<{
+    from_endpoint: string;
+    to_endpoint: string;
+    offer_type: string;
+    selected: number;
+    revenue: string;
+  }>;
+  offer_performance: Array<{
+    offer: string;
+    shown: number;
+    selected: number;
+    conversion_rate: number;
+    revenue: string;
+  }>;
+  executive_takeaways: string[];
   reason_codes: Array<{ code: string; count: number }>;
 };
 

@@ -35,8 +35,10 @@ export const CurrencySchema = z.enum(["USDC"]);
 
 export const SegmentSchema = z.enum([
   "anonymous_wallet",
+  "wallet_only_privy_user",
   "low_assurance_privy_user",
   "verified_privy_user",
+  "repeat_privy_buyer",
 ]);
 
 export const PolicySchema = z.enum([
@@ -213,6 +215,36 @@ export const DashboardResponseSchema = z.object({
       best_offer: z.string(),
     }),
   ),
+  channels: z.array(
+    z.object({
+      channel: z.string(),
+      requests: z.number(),
+      offers_returned: z.number(),
+      paid_conversions: z.number(),
+      conversion_rate: z.number(),
+      revenue: z.string(),
+      best_segment: SegmentSchema,
+    }),
+  ),
+  bundle_insights: z.array(
+    z.object({
+      from_endpoint: z.string(),
+      to_endpoint: z.string(),
+      offer_type: NextOfferTypeSchema,
+      selected: z.number(),
+      revenue: z.string(),
+    }),
+  ),
+  offer_performance: z.array(
+    z.object({
+      offer: z.string(),
+      shown: z.number(),
+      selected: z.number(),
+      conversion_rate: z.number(),
+      revenue: z.string(),
+    }),
+  ),
+  executive_takeaways: z.array(z.string()),
   reason_codes: z.array(z.object({ code: z.string(), count: z.number() })),
 });
 

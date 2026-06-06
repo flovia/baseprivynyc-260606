@@ -24,6 +24,7 @@
     "db:seed": "bun run --filter='@flovia-baseprivynyc/db' db:seed"
   },
   "dependencies": {
+    "@nivo/sankey": "^0.99.0",
     "@radix-ui/react-slot": "^1.2.5",
     "@tailwindcss/postcss": "^4.3.0",
     "class-variance-authority": "^0.7.1",
