@@ -121,7 +121,7 @@ app.post("/v1/auth/privy/sync", async (c) => {
 // Stand-ins for Privy login + agent authorization, and for account linking in
 // the Privy UI. Not part of the merchant-facing API surface.
 
-if (process.env.FLOVIA_ENABLE_DEV_ENDPOINTS === "true" || process.env.NODE_ENV === "test") {
+if (process.env.FLOVIA_ENABLE_DEV_ENDPOINTS === "true" || process.env.NODE_ENV !== "production") {
   app.post("/v1/dev/users", async (c) => {
     const body = DevUserSchema.parse(await c.req.json());
     const user = upsertUser({

@@ -140,7 +140,7 @@ export default async function DashboardPage() {
                 flows={bundleFlows}
                 compact
                 height={230}
-                minWidth={0}
+                minWidth={520}
                 margin={{ top: 8, right: 120, bottom: 8, left: 10 }}
                 ariaLabel="Cross-API bundle recommendation Sankey diagram"
                 emptyMessage="No bundle flow detected."

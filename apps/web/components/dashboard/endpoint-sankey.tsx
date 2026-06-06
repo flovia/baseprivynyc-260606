@@ -69,8 +69,8 @@ export function EndpointSankey({
   const resolvedMargin = margin ?? (compact ? { top: 8, right: 104, bottom: 8, left: 12 } : { top: 12, right: 132, bottom: 12, left: 16 });
 
   return (
-    <div className="w-full overflow-x-auto">
-      <div style={{ height: resolvedHeight, minWidth: resolvedMinWidth, width: "100%" }}>
+    <div className="w-full overflow-x-auto rounded-lg border bg-surface-card">
+      <div style={{ height: resolvedHeight, minWidth: resolvedMinWidth, width: "100%", minHeight: resolvedHeight }}>
         <ResponsiveSankey<SankeyNode, SankeyLink>
           data={data}
           margin={resolvedMargin}

@@ -40,11 +40,15 @@ function pureWalletKey(wallet: string): string {
 }
 
 async function markPrivyWalletVerified(wallet: string): Promise<void> {
-  await fetch(`${defaultConfig.floviaApiUrl}/v1/dev/users`, {
+  const response = await fetch(`${defaultConfig.floviaApiUrl}/v1/dev/users`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ wallet, identity_confidence: "verified_social", authorized: true }),
-  }).catch(() => undefined);
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null) as { error?: string } | null;
+    throw new Error(body?.error ?? `Privy demo user sync failed with ${response.status}. Restart the API with FLOVIA_ENABLE_DEV_ENDPOINTS=true.`);
+  }
 }
 
 async function readJson(response: Response): Promise<JsonObject> {
