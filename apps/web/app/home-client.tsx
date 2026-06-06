@@ -39,10 +39,6 @@ function linkedAccountTypes(user: ReturnType<typeof usePrivy>["user"]): string[]
   return user?.linkedAccounts?.map((account) => account.type) ?? [];
 }
 
-function shortAddress(address: string): string {
-  return address ? `${address.slice(0, 6)}...${address.slice(-4)}` : "-";
-}
-
 function formatEthBalance(hexBalance: string): string {
   const wei = BigInt(hexBalance);
   const whole = wei / 10n ** 18n;
@@ -92,8 +88,8 @@ function PrivyHomeClient({ action, initialState }: Readonly<{
   const offer = objectValue(state.offerResponse, "flovia");
   const accepts = arrayValue(state.offerResponse, "accepts");
   const requirement = accepts[0] && typeof accepts[0] === "object" && !Array.isArray(accepts[0]) ? accepts[0] as JsonObject : null;
-  const selectedEndpoint = endpoints.find((endpoint) => endpoint.path === endpointInput) ?? endpoints[0];
-  const canRequest = privy.ready && privy.authenticated && Boolean(privyWallet);
+  const canRequestWithPrivy = privy.ready && privy.authenticated && Boolean(privyWallet);
+  const requestModeLabel = state.requestMode === "privy" ? "Privy wallet" : state.requestMode === "pure_wallet" ? "Pure wallet" : "No preview";
 
   useEffect(() => {
     setEndpointInput(state.endpoint);
@@ -136,9 +132,11 @@ function PrivyHomeClient({ action, initialState }: Readonly<{
     <main className="min-h-screen bg-surface-page px-4 py-5 text-foreground sm:px-6 lg:px-8">
       <form action={formAction} className="mx-auto flex max-w-6xl flex-col gap-5">
         <header className="flex items-center justify-between gap-3 rounded-lg border bg-surface-card p-5">
-          <div className="flex items-center gap-3">
-            <Image src="/logo.png" alt="Flovia" width={40} height={40} className="rounded-md" />
-            <h1 className="display text-3xl font-semibold text-text-1 sm:text-4xl">Flovia</h1>
+          <div className="flex items-center gap-2.5">
+            <span className="flex size-9 items-center justify-center rounded-lg border border-border bg-white shadow-sm">
+              <Image src="/logo.png" alt="Flovia" width={30} height={30} className="rounded-sm" priority />
+            </span>
+            <h1 className="display text-2xl font-semibold tracking-tight text-text-1">Flovia</h1>
           </div>
           <a href="/dashboard" className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline">
             Merchant dashboard
@@ -180,7 +178,7 @@ function PrivyHomeClient({ action, initialState }: Readonly<{
                   <div className="rounded-lg border bg-surface-subtle p-3">
                     <p className="text-xs uppercase tracking-wide text-text-mute">Connection</p>
                     <p className="mt-1 flex items-center gap-2 font-medium">
-                      <span className={canRequest ? "size-2 rounded-full bg-success" : "size-2 rounded-full bg-text-mute"} />
+                      <span className={canRequestWithPrivy ? "size-2 rounded-full bg-success" : "size-2 rounded-full bg-text-mute"} />
                       {privy.ready ? (privy.authenticated ? "Connected" : "Disconnected") : "Loading"}
                     </p>
                   </div>
@@ -193,12 +191,6 @@ function PrivyHomeClient({ action, initialState }: Readonly<{
                     <p className="text-xs uppercase tracking-wide text-text-mute">Account</p>
                     <p className="mt-1 break-all font-medium">{privyWallet || "-"}</p>
                     <p className="text-xs text-text-3">{linked.length ? linked.join(", ") : "No linked account yet"}</p>
-                  </div>
-                  <div className="rounded-lg border bg-surface-subtle p-3 text-sm text-text-2">
-                    <p className="text-xs uppercase tracking-wide text-text-mute">Request context</p>
-                    <p className="mt-2"><span className="text-text-mute">Endpoint:</span> {selectedEndpoint.method} {endpointInput}</p>
-                    <p><span className="text-text-mute">Wallet:</span> {shortAddress(privyWallet)}</p>
-                    <p><span className="text-text-mute">Budget:</span> {budgetInput}</p>
                   </div>
                 </div>
 
@@ -221,7 +213,7 @@ function PrivyHomeClient({ action, initialState }: Readonly<{
                   <PlugZap className="size-5 text-primary" />
                   Request
                 </CardTitle>
-                <CardDescription>Pick an endpoint, then send the actual Privy-wallet request.</CardDescription>
+                <CardDescription>Pick an endpoint, then preview the price path.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid gap-3 sm:grid-cols-3">
@@ -251,10 +243,16 @@ function PrivyHomeClient({ action, initialState }: Readonly<{
                   <input value={budgetInput} onChange={(event) => setBudgetInput(event.target.value)} className="w-full rounded-md border bg-surface-card px-3 py-2 text-sm" />
                 </label>
 
-                <Button type="submit" name="intent" value="call-merchant" disabled={pending || !canRequest}>
-                  {pending ? "Sending..." : "Send request with Privy"}
-                  <ArrowRight className="size-4" />
-                </Button>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <Button type="submit" name="intent" value="call-merchant-privy" disabled={pending || !canRequestWithPrivy}>
+                    {pending ? "Sending..." : "Send request with Privy"}
+                    <ArrowRight className="size-4" />
+                  </Button>
+                  <Button type="submit" name="intent" value="call-merchant-pure" variant="outline" disabled={pending}>
+                    {pending ? "Sending..." : "Send request with pure wallet"}
+                    <ArrowRight className="size-4" />
+                  </Button>
+                </div>
               </CardContent>
             </Card>
 
@@ -262,9 +260,9 @@ function PrivyHomeClient({ action, initialState }: Readonly<{
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <StepBadge n={2} />
-                  Offer response
+                  Preview
                 </CardTitle>
-                <CardDescription>HTTP 402 offer context returned by the merchant API.</CardDescription>
+                <CardDescription>HTTP 402 offer preview returned by the merchant API. Payment simulation is available only from this preview state.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3 text-sm text-text-2">
                 <div className="grid gap-3 sm:grid-cols-3">
@@ -282,13 +280,14 @@ function PrivyHomeClient({ action, initialState }: Readonly<{
                   </div>
                 </div>
                 <div className="rounded-lg border bg-surface-subtle p-3">
+                  <p><span className="text-text-mute">Request mode:</span> {requestModeLabel}</p>
                   <p><span className="text-text-mute">Reason codes:</span> {offer ? arrayValue(offer, "reason_codes").join(", ") || "-" : "-"}</p>
                   <p><span className="text-text-mute">x402 amount:</span> {requirement ? stringValue(requirement, "maxAmountRequired") : "-"}</p>
                   <p><span className="text-text-mute">Network:</span> {requirement ? stringValue(requirement, "network") : "-"}</p>
                 </div>
-                <Button type="submit" name="intent" value="simulate-payment" variant="secondary" disabled={pending || !offer}>
+                <Button type="submit" name="intent" value="simulate-payment" variant="secondary" disabled={pending || !offer || state.status !== "offer"}>
                   <CreditCard className="size-4" />
-                  Simulate payment
+                  Simulate payment from preview
                 </Button>
               </CardContent>
             </Card>

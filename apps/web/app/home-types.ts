@@ -4,6 +4,8 @@ export type HomeState = {
   wallet: string;
   budget: string;
   endpoint: string;
+  requestMode: "privy" | "pure_wallet" | null;
+  requestWallet: string;
   message: string;
   status: "idle" | "offer" | "paid" | "error";
   offerResponse: JsonObject | null;

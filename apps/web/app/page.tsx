@@ -6,6 +6,8 @@ const initialState: HomeState = {
   wallet: "",
   budget: defaultConfig.defaultBudgetUsdc,
   endpoint: "/api/premium-signal",
+  requestMode: null,
+  requestWallet: "",
   message: "Login with Privy, choose an endpoint, then send a merchant request.",
   status: "idle",
   offerResponse: null,
@@ -33,6 +35,18 @@ function firstPaymentRequirement(response: JsonObject | null): JsonObject | null
   return first && typeof first === "object" && !Array.isArray(first) ? first as JsonObject : null;
 }
 
+function pureWalletKey(wallet: string): string {
+  return wallet ? `${wallet}:pure-wallet-demo` : "0x0000000000000000000000000000000000000420";
+}
+
+async function markPrivyWalletVerified(wallet: string): Promise<void> {
+  await fetch(`${defaultConfig.floviaApiUrl}/v1/dev/users`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ wallet, identity_confidence: "verified_social", authorized: true }),
+  }).catch(() => undefined);
+}
+
 async function readJson(response: Response): Promise<JsonObject> {
   const body = await response.json().catch(() => null);
   return body && typeof body === "object" && !Array.isArray(body) ? body as JsonObject : {};
@@ -48,13 +62,16 @@ async function homeAction(state: HomeState, formData: FormData): Promise<HomeSta
   const nextState = { ...state, wallet, budget, endpoint };
 
   try {
-    if (!wallet) throw new Error("Privy wallet is not connected.");
+    if (intent === "call-merchant-privy" || intent === "call-merchant-pure") {
+      const mode = intent === "call-merchant-privy" ? "privy" : "pure_wallet";
+      if (mode === "privy" && !wallet) throw new Error("Privy wallet is not connected.");
+      const requestWallet = mode === "privy" ? wallet : pureWalletKey(wallet);
+      if (mode === "privy") await markPrivyWalletVerified(wallet);
 
-    if (intent === "call-merchant") {
       const response = await fetch(`${defaultConfig.merchantApiUrl}${endpoint}`, {
         method: "GET",
         headers: {
-          "x-agent-wallet": wallet,
+          "x-agent-wallet": requestWallet,
           "x-agent-budget": budget,
         },
         cache: "no-store",
@@ -66,32 +83,37 @@ async function homeAction(state: HomeState, formData: FormData): Promise<HomeSta
       const policy = stringValue(offer, "policy") ?? "unknown_policy";
       return {
         ...nextState,
+        requestMode: mode,
+        requestWallet,
         offerResponse: body,
         paidResponse: null,
         status: "offer",
-        message: `Merchant returned HTTP 402 with ${policy} at ${finalPrice} USDC.`,
+        message: `${mode === "privy" ? "Privy" : "Pure wallet"} preview returned HTTP 402 with ${policy} at ${finalPrice} USDC.`,
       };
     }
 
     if (intent === "simulate-payment") {
+      if (!wallet && !state.requestWallet) throw new Error("No preview wallet is available.");
+      if (state.status !== "offer") throw new Error("Payment simulation is only available from an active preview.");
       const requirement = firstPaymentRequirement(state.offerResponse);
       const flovia = objectValue(state.offerResponse, "flovia");
       const extra = objectValue(requirement, "extra");
       const quoteId = stringValue(extra, "quote_id");
       const requestId = stringValue(extra, "request_id");
       if (!quoteId || !requestId) throw new Error("Missing quote metadata; send a merchant request first.");
+      const paymentWallet = state.requestWallet || wallet;
 
       const response = await fetch(`${defaultConfig.merchantApiUrl}${endpoint}`, {
         method: "GET",
         headers: {
-          "x-agent-wallet": wallet,
+          "x-agent-wallet": paymentWallet,
           "x-agent-budget": budget,
           "x-payment": JSON.stringify({
             quote_id: quoteId,
             request_id: requestId,
             tx_hash: `sim_ui_${crypto.randomUUID()}`,
             amount: stringValue(flovia, "final_price") ?? stringValue(extra, "display_price") ?? defaultConfig.endpointPrices.premiumSignal,
-            wallet,
+            wallet: paymentWallet,
             offer_selected: stringValue(flovia, "policy") ?? "mvp_simulation",
             simulation: true,
           }),
@@ -102,6 +124,8 @@ async function homeAction(state: HomeState, formData: FormData): Promise<HomeSta
       if (!response.ok) throw new Error(stringValue(body, "error") ?? `Payment simulation failed with ${response.status}.`);
       return {
         ...nextState,
+        requestMode: state.requestMode,
+        requestWallet: paymentWallet,
         paidResponse: body,
         status: "paid",
         message: "Payment simulated. The merchant dashboard now shows the request and conversion.",
