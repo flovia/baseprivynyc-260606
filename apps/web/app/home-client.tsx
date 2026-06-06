@@ -3,11 +3,16 @@
 import Image from "next/image";
 import { useActionState, useEffect, useMemo, useState } from "react";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
-import { ArrowRight, CheckCircle2, CreditCard, LogOut, PlugZap, Wallet } from "lucide-react";
+import { usdcAssetAddresses } from "@flovia-baseprivynyc/config";
+import { ArrowRight, CheckCircle2, CreditCard, LogOut, Mail, PlugZap, ShieldCheck, SquareCode, Wallet, X } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { HomeAction, HomeState, JsonObject } from "./home-types";
+
+const baseChainId = "0x2105";
+const baseUsdcAddress = usdcAssetAddresses.base;
 
 const endpoints = [
   { method: "GET", path: "/api/premium-signal", label: "Premium signal", detail: "Personalized 402 offer" },
@@ -39,11 +44,42 @@ function linkedAccountTypes(user: ReturnType<typeof usePrivy>["user"]): string[]
   return user?.linkedAccounts?.map((account) => account.type) ?? [];
 }
 
-function formatEthBalance(hexBalance: string): string {
-  const wei = BigInt(hexBalance);
-  const whole = wei / 10n ** 18n;
-  const fraction = (wei % 10n ** 18n).toString().padStart(18, "0").slice(0, 4);
-  return `${whole}.${fraction} ETH`;
+function baseUsdcBalanceCall(address: string): string {
+  return `0x70a08231${address.toLowerCase().replace(/^0x/, "").padStart(64, "0")}`;
+}
+
+function formatUsdcBalance(hexBalance: string): string {
+  const atomic = BigInt(hexBalance);
+  const whole = atomic / 10n ** 6n;
+  const fraction = (atomic % 10n ** 6n).toString().padStart(6, "0").replace(/0+$/, "");
+  return `${fraction ? `${whole}.${fraction}` : whole} USDC`;
+}
+
+function linkedAccountDisplay(type: string): { label: string; Icon: LucideIcon } {
+  if (type === "github_oauth" || type === "github") return { label: "GitHub", Icon: SquareCode };
+  if (type === "twitter_oauth" || type === "twitter") return { label: "X", Icon: X };
+  if (type === "wallet" || type === "smart_wallet") return { label: "Wallet", Icon: Wallet };
+  if (type === "email") return { label: "Email", Icon: Mail };
+  if (type === "passkey" || type === "mfa") return { label: type, Icon: ShieldCheck };
+  return { label: type, Icon: CheckCircle2 };
+}
+
+function LinkedAccountBadges({ types }: Readonly<{ types: string[] }>) {
+  if (!types.length) return <p className="text-xs text-text-3">No linked account yet</p>;
+
+  return (
+    <div className="mt-2 flex flex-wrap gap-1.5">
+      {types.map((type) => {
+        const { label, Icon } = linkedAccountDisplay(type);
+        return (
+          <Badge key={type} className="gap-1">
+            <Icon className="size-3" />
+            {label}
+          </Badge>
+        );
+      })}
+    </div>
+  );
 }
 
 function StepBadge({ n }: Readonly<{ n: number }>) {
@@ -107,17 +143,24 @@ function PrivyHomeClient({ action, initialState }: Readonly<{
       }
 
       try {
-        setBalanceStatus("Loading balance");
+        setBalanceStatus("Loading Base USDC");
         const provider = await activeWallet.getEthereumProvider();
-        const hexBalance = await provider.request({ method: "eth_getBalance", params: [activeWallet.address, "latest"] });
+        const chainId = await provider.request({ method: "eth_chainId" });
+        if (chainId !== baseChainId) {
+          await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: baseChainId }] });
+        }
+        const hexBalance = await provider.request({
+          method: "eth_call",
+          params: [{ to: baseUsdcAddress, data: baseUsdcBalanceCall(activeWallet.address) }, "latest"],
+        });
         if (!cancelled && typeof hexBalance === "string") {
-          setBalance(formatEthBalance(hexBalance));
-          setBalanceStatus("Connected");
+          setBalance(formatUsdcBalance(hexBalance));
+          setBalanceStatus("Base USDC");
         }
       } catch {
         if (!cancelled) {
           setBalance("-");
-          setBalanceStatus("Balance unavailable");
+          setBalanceStatus("Base USDC unavailable");
         }
       }
     }
@@ -190,7 +233,7 @@ function PrivyHomeClient({ action, initialState }: Readonly<{
                   <div className="rounded-lg border bg-surface-subtle p-3">
                     <p className="text-xs uppercase tracking-wide text-text-mute">Account</p>
                     <p className="mt-1 break-all font-medium">{privyWallet || "-"}</p>
-                    <p className="text-xs text-text-3">{linked.length ? linked.join(", ") : "No linked account yet"}</p>
+                    <LinkedAccountBadges types={linked} />
                   </div>
                 </div>
 

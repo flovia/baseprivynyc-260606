@@ -2,7 +2,8 @@
 
 import { useActionState } from "react";
 import { useIdentityToken, usePrivy } from "@privy-io/react-auth";
-import { Link2, Mail, SquareCode, X } from "lucide-react";
+import { CheckCircle2, Link2, Mail, ShieldCheck, SquareCode, Wallet, X } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,6 +20,34 @@ function walletAddress(user: ReturnType<typeof usePrivy>["user"]): string {
   if (user?.wallet?.address) return user.wallet.address;
   const wallet = user?.linkedAccounts?.find((account) => account.type === "wallet" || account.type === "smart_wallet");
   return wallet && "address" in wallet ? wallet.address : "";
+}
+
+function linkedAccountDisplay(type: string): { label: string; Icon: LucideIcon } {
+  if (type === "github_oauth" || type === "github") return { label: "GitHub", Icon: SquareCode };
+  if (type === "twitter_oauth" || type === "twitter") return { label: "X", Icon: X };
+  if (type === "wallet" || type === "smart_wallet") return { label: "Wallet", Icon: Wallet };
+  if (type === "email") return { label: "Email", Icon: Mail };
+  if (type === "passkey" || type === "mfa") return { label: type, Icon: ShieldCheck };
+  return { label: type, Icon: CheckCircle2 };
+}
+
+function LinkedAccountBadges({ types }: Readonly<{ types: string[] }>) {
+  if (!types.length) return <p>Linked: -</p>;
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span>Linked:</span>
+      {types.map((type) => {
+        const { label, Icon } = linkedAccountDisplay(type);
+        return (
+          <Badge key={type} className="gap-1">
+            <Icon className="size-3" />
+            {label}
+          </Badge>
+        );
+      })}
+    </div>
+  );
 }
 
 export function PrivyLoginClient({
@@ -76,7 +105,7 @@ export function PrivyLoginClient({
             <p>Authenticated: {String(privy.authenticated)}</p>
             <p>Privy DID: {privy.user?.id ?? "-"}</p>
             <p>Wallet: {wallet || "-"}</p>
-            <p>Linked: {linked.length > 0 ? linked.join(", ") : "-"}</p>
+            <LinkedAccountBadges types={linked} />
           </div>
           <form action={formAction} className="space-y-3">
             <input type="hidden" name="identity_token" value={identityToken ?? ""} />
