@@ -1,0 +1,19 @@
+{
+  "name": "@flovia-baseprivynyc/db",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "dev": "bun run src/index.ts",
+    "build": "bun build src/index.ts --outdir dist --target bun",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "db:migrate": "bun run src/index.ts migrate",
+    "db:seed": "bun run src/index.ts seed"
+  },
+  "dependencies": {
+    "@flovia-baseprivynyc/shared": "workspace:*"
+  }
+}

@@ -1,17 +1,28 @@
 {
-  "name": "baseprivynyc",
+  "name": "flovia-baseprivynyc",
   "version": "0.0.0",
   "private": true,
   "workspaces": [
+    "apps/*",
     "packages/*"
   ],
   "scripts": {
     "build": "bun run --filter='*' build",
     "dev": "bun run --filter='*' dev",
+    "dev:api": "bun run --filter='api' dev",
+    "dev:merchant": "bun run --filter='merchant-api' dev",
+    "dev:agent": "bun run --filter='demo-agent' dev",
     "test": "bun run --filter='*' test",
-    "typecheck": "bun run --filter='*' typecheck"
+    "typecheck": "bun run --filter='*' typecheck",
+    "db:migrate": "bun run --filter='@flovia-baseprivynyc/db' db:migrate",
+    "db:seed": "bun run --filter='@flovia-baseprivynyc/db' db:seed"
+  },
+  "dependencies": {
+    "hono": "^4.10.7",
+    "zod": "^4.2.1"
   },
   "devDependencies": {
+    "@types/bun": "^1.3.4",
     "typescript": "^6.0.3"
   }
 }

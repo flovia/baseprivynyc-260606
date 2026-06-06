@@ -1,0 +1,17 @@
+{
+  "name": "merchant-api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "build": "bun build src/index.ts --outdir dist --target bun",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@flovia-baseprivynyc/config": "workspace:*",
+    "@flovia-baseprivynyc/sdk": "workspace:*",
+    "hono": "^4.10.7"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "@flovia-baseprivynyc/sdk",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "dev": "bun run src/index.ts",
+    "build": "bun build src/index.ts --outdir dist --target bun",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@flovia-baseprivynyc/config": "workspace:*",
+    "@flovia-baseprivynyc/shared": "workspace:*",
+    "hono": "^4.10.7"
+  }
+}
