@@ -1,187 +1,123 @@
-import { ArrowRight, BadgeCheck, Bot, CreditCard, Gauge, ShieldCheck, Wallet } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { defaultConfig, publicAuthConfig } from "@flovia-baseprivynyc/config";
+import { HomeClient } from "./home-client";
+import type { HomeState, JsonObject } from "./home-types";
 
-const metrics = [
-  { label: "Requests", value: "42", detail: "demo seed" },
-  { label: "402 offers", value: "38", detail: "personalized" },
-  { label: "Paid conversions", value: "21", detail: "55%" },
-  { label: "Revenue lift", value: "+31%", detail: "vs fixed price" },
-];
+const initialState: HomeState = {
+  wallet: "",
+  budget: defaultConfig.defaultBudgetUsdc,
+  endpoint: "/api/premium-signal",
+  message: "Login with Privy, choose an endpoint, then send a merchant request.",
+  status: "idle",
+  offerResponse: null,
+  paidResponse: null,
+};
 
-const flow = [
-  { icon: Wallet, title: "Privy user", body: "Login and expose only normalized identity signals." },
-  { icon: Bot, title: "Authorized agent", body: "Set category and budget before calling merchant APIs." },
-  { icon: CreditCard, title: "Adaptive 402", body: "Merchant returns x402 accepts plus Flovia offer context." },
-  { icon: Gauge, title: "Dashboard", body: "Track conversion, revenue, segments, and reason codes." },
-];
+function formString(formData: FormData, key: string, fallback: string): string {
+  const value = formData.get(key);
+  return typeof value === "string" && value.length > 0 ? value : fallback;
+}
 
-const requests = [
-  ["12:00:15", "0xabc...", "verified_privy_user", "/api/premium-signal", "$0.025", "verified_user_discount"],
-  ["11:58:41", "0xdef...", "low_assurance_privy_user", "/api/premium-signal", "$0.05", "unlockable_discount"],
-  ["11:54:03", "0x987...", "anonymous_wallet", "/api/basic-signal", "$0.01", "base_price"],
-];
+function objectValue(input: unknown, key: string): unknown {
+  return input && typeof input === "object" && !Array.isArray(input) ? (input as JsonObject)[key] : undefined;
+}
+
+function stringValue(input: unknown, key: string): string | undefined {
+  const value = objectValue(input, key);
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function firstPaymentRequirement(response: JsonObject | null): JsonObject | null {
+  const accepts = objectValue(response, "accepts");
+  if (!Array.isArray(accepts)) return null;
+  const first = accepts[0];
+  return first && typeof first === "object" && !Array.isArray(first) ? first as JsonObject : null;
+}
+
+async function readJson(response: Response): Promise<JsonObject> {
+  const body = await response.json().catch(() => null);
+  return body && typeof body === "object" && !Array.isArray(body) ? body as JsonObject : {};
+}
+
+async function homeAction(state: HomeState, formData: FormData): Promise<HomeState> {
+  "use server";
+
+  const intent = formString(formData, "intent", "");
+  const wallet = formString(formData, "wallet", state.wallet);
+  const budget = formString(formData, "budget", state.budget);
+  const endpoint = formString(formData, "endpoint", state.endpoint);
+  const nextState = { ...state, wallet, budget, endpoint };
+
+  try {
+    if (!wallet) throw new Error("Privy wallet is not connected.");
+
+    if (intent === "call-merchant") {
+      const response = await fetch(`${defaultConfig.merchantApiUrl}${endpoint}`, {
+        method: "GET",
+        headers: {
+          "x-agent-wallet": wallet,
+          "x-agent-budget": budget,
+        },
+        cache: "no-store",
+      });
+      const body = await readJson(response);
+      if (response.status !== 402) throw new Error(stringValue(body, "error") ?? `Expected HTTP 402, received ${response.status}.`);
+      const offer = objectValue(body, "flovia");
+      const finalPrice = stringValue(offer, "final_price") ?? "unknown";
+      const policy = stringValue(offer, "policy") ?? "unknown_policy";
+      return {
+        ...nextState,
+        offerResponse: body,
+        paidResponse: null,
+        status: "offer",
+        message: `Merchant returned HTTP 402 with ${policy} at ${finalPrice} USDC.`,
+      };
+    }
+
+    if (intent === "simulate-payment") {
+      const requirement = firstPaymentRequirement(state.offerResponse);
+      const flovia = objectValue(state.offerResponse, "flovia");
+      const extra = objectValue(requirement, "extra");
+      const quoteId = stringValue(extra, "quote_id");
+      const requestId = stringValue(extra, "request_id");
+      if (!quoteId || !requestId) throw new Error("Missing quote metadata; send a merchant request first.");
+
+      const response = await fetch(`${defaultConfig.merchantApiUrl}${endpoint}`, {
+        method: "GET",
+        headers: {
+          "x-agent-wallet": wallet,
+          "x-agent-budget": budget,
+          "x-payment": JSON.stringify({
+            quote_id: quoteId,
+            request_id: requestId,
+            tx_hash: `sim_ui_${crypto.randomUUID()}`,
+            amount: stringValue(flovia, "final_price") ?? stringValue(extra, "display_price") ?? defaultConfig.endpointPrices.premiumSignal,
+            wallet,
+            offer_selected: stringValue(flovia, "policy") ?? "mvp_simulation",
+            simulation: true,
+          }),
+        },
+        cache: "no-store",
+      });
+      const body = await readJson(response);
+      if (!response.ok) throw new Error(stringValue(body, "error") ?? `Payment simulation failed with ${response.status}.`);
+      return {
+        ...nextState,
+        paidResponse: body,
+        status: "paid",
+        message: "Payment simulated. The merchant dashboard now shows the request and conversion.",
+      };
+    }
+
+    return nextState;
+  } catch (error) {
+    return {
+      ...nextState,
+      status: "error",
+      message: error instanceof Error ? error.message : "Request failed.",
+    };
+  }
+}
 
 export default function Home() {
-  return (
-    <main className="min-h-screen bg-surface-page text-foreground">
-      <section className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-4 py-5 sm:px-6 lg:px-8">
-        <div className="flex flex-col gap-1">
-          <a href="/dashboard" className="self-end text-sm font-medium text-primary hover:underline">
-            {"->"} merchant dashboard
-          </a>
-          <header className="flex flex-col gap-4 rounded-xl border bg-surface-card p-5 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-              <ShieldCheck className="size-5" />
-            </div>
-            <div>
-              <p className="mono text-xs uppercase tracking-[0.18em] text-text-mute">Flovia Agent Offers</p>
-              <h1 className="display text-2xl font-semibold text-text-1">Personalized x402 checkout</h1>
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button asChild>
-              <a href="/login">Privy login</a>
-            </Button>
-          </div>
-          </header>
-        </div>
-
-        <div className="grid gap-5 lg:grid-cols-[1.2fr_0.8fr]">
-          <Card className="overflow-hidden">
-            <CardHeader className="border-b bg-[linear-gradient(135deg,var(--mesh-blue-soft),var(--mesh-blue-dim))] p-6 sm:p-8">
-              <Badge className="w-fit border-primary/20 bg-mesh-blue-soft text-primary">
-                Privy-authorized agents + merchant x402 APIs
-              </Badge>
-              <div className="max-w-3xl space-y-3 pt-3">
-                <CardTitle className="display text-4xl font-semibold leading-tight sm:text-5xl">
-                  Turn every payment-required response into an agent-aware offer.
-                </CardTitle>
-                <CardDescription className="max-w-2xl text-base text-text-2">
-                  Flovia lets merchants keep standard x402 payment requirements while returning normalized, privacy-safe offer context for Flovia-aware agents.
-                </CardDescription>
-              </div>
-            </CardHeader>
-            <CardContent className="grid gap-4 p-6 sm:grid-cols-3 sm:p-8">
-              <div className="rounded-lg border bg-surface-subtle p-4">
-                <p className="text-xs font-medium uppercase tracking-wide text-text-mute">Anonymous</p>
-                <p className="mt-2 text-2xl font-semibold">$0.05</p>
-                <p className="text-sm text-text-3">base price</p>
-              </div>
-              <div className="rounded-lg border border-primary/20 bg-mesh-blue-dim p-4">
-                <p className="text-xs font-medium uppercase tracking-wide text-primary">Verified Privy</p>
-                <p className="mt-2 text-2xl font-semibold">$0.025</p>
-                <p className="text-sm text-text-3">discounted current request</p>
-              </div>
-              <div className="rounded-lg border bg-surface-subtle p-4">
-                <p className="text-xs font-medium uppercase tracking-wide text-text-mute">Next offer</p>
-                <p className="mt-2 text-2xl font-semibold">Bundle</p>
-                <p className="text-sm text-text-3">post-payment upsell</p>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <BadgeCheck className="size-4 text-primary" />
-                Demo checklist
-              </CardTitle>
-              <CardDescription>Use the guided UI after starting the API services.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <pre className="overflow-x-auto rounded-lg border bg-surface-subtle p-3 text-xs text-text-2">
-                <code>{"bun run dev:api\nbun run dev:merchant\nopen /demo"}</code>
-              </pre>
-              <Button asChild className="w-full justify-between">
-                <a href="/demo">
-                  Run guided demo
-                  <ArrowRight className="size-4" />
-                </a>
-              </Button>
-              <Button asChild variant="secondary" className="w-full justify-between">
-                <a href="/dashboard">
-                  View dashboard
-                  <ArrowRight className="size-4" />
-                </a>
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-
-        <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {metrics.map((metric) => (
-            <Card key={metric.label}>
-              <CardHeader className="pb-2">
-                <CardDescription>{metric.label}</CardDescription>
-                <CardTitle className="display text-3xl">{metric.value}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-text-3">{metric.detail}</p>
-              </CardContent>
-            </Card>
-          ))}
-        </section>
-
-        <section className="grid gap-5 lg:grid-cols-[0.8fr_1.2fr]">
-          <Card>
-            <CardHeader>
-              <CardTitle>Offer flow</CardTitle>
-              <CardDescription>The MVP path follows the SPEC privacy boundary.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {flow.map((item) => (
-                <div key={item.title} className="flex gap-3 rounded-lg border bg-surface-subtle p-3">
-                  <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
-                    <item.icon className="size-4" />
-                  </div>
-                  <div>
-                    <p className="font-medium text-text-1">{item.title}</p>
-                    <p className="text-sm text-text-3">{item.body}</p>
-                  </div>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Recent requests</CardTitle>
-              <CardDescription>Representative merchant dashboard rows.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="overflow-hidden rounded-lg border">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Time</TableHead>
-                      <TableHead>Wallet</TableHead>
-                      <TableHead>Segment</TableHead>
-                      <TableHead>Endpoint</TableHead>
-                      <TableHead>Price</TableHead>
-                      <TableHead>Policy</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {requests.map((row) => (
-                      <TableRow key={`${row[0]}-${row[1]}`}>
-                        {row.map((cell) => (
-                          <TableCell key={cell} className="whitespace-nowrap text-text-2">
-                            {cell}
-                          </TableCell>
-                        ))}
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            </CardContent>
-          </Card>
-        </section>
-      </section>
-    </main>
-  );
+  return <HomeClient action={homeAction} configured={Boolean(publicAuthConfig.privyAppId)} initialState={initialState} />;
 }

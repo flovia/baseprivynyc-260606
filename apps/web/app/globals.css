@@ -27,7 +27,7 @@
   --warn-soft: rgba(154, 82, 18, 0.1);
   --danger: #c0322b;          /* muted brick red, de-neoned */
   --danger-soft: rgba(192, 50, 43, 0.09);
-  --success: #1f7a52;         /* muted green nudged toward the teal accent */
+  --success: #1f7a52;         /* muted green, in-family status color */
   --success-soft: rgba(31, 122, 82, 0.09);
   --surface-page: var(--bg-shell);
   --surface-card: var(--bg-card);
